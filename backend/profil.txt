@@ -3,23 +3,23 @@
 # ============================================================
 
 [JOUEUR]
-hp_total             = 15483282.73939394
-attaque_total        = 3600000.0
-hp_base              = 14867757.575757574
+hp_total             = 15802035.0
+attaque_total        = 4072616.0300673023
+hp_base              = 15172381.180988956
 attaque_base         = 3146578.096320252
-health_pct           = 4.14
-damage_pct           = 10.6
+health_pct           = 4.15
+damage_pct           = 22.2
 melee_pct            = 0.0
-ranged_pct           = 3.81
+ranged_pct           = 7.23
 taux_crit            = 0.0
 degat_crit           = 0.0
-health_regen         = 18.26
+health_regen         = 12.96
 lifesteal            = 87.7
-double_chance        = 98.5
+double_chance        = 98.1
 vitesse_attaque      = 135.0
 skill_damage         = 0.0
 skill_cooldown       = -1.78
-chance_blocage       = 9.25
+chance_blocage       = 4.53
 type_attaque         = distance
 skills               = u1,u2,u3
 

@@ -87,12 +87,13 @@ class ForgeMasterApp(ctk.CTk):
 
         self._nav_buttons = {}
         nav_items = [
-            ("dashboard",   "  📊  Dashboard"),
-            ("simulateur",  "  ⚔   Simulateur"),
-            ("equipements", "  🛡   Équipements"),
-            ("skills",      "  ✨  Skills"),
-            ("pets",        "  🐾  Pets"),
-        ]
+        ("dashboard",   "  📊  Dashboard"),
+        ("simulateur",  "  ⚔   Simulateur"),
+        ("equipements", "  🛡   Équipements"),
+        ("skills",      "  ✨  Skills"),
+        ("pets",        "  🐾  Pets"),
+        ("optimizer",   "  🧬  Optimiseur"),   # ← ajouter ici
+    ]
         for idx, (view_id, label) in enumerate(nav_items):
             btn = ctk.CTkButton(
                 self.nav_frame,
@@ -134,6 +135,7 @@ class ForgeMasterApp(ctk.CTk):
         from ui.views.equipements import EquipementsView
         from ui.views.skills_view import SkillsView
         from ui.views.pets_view   import PetsView
+        from ui.views.optimizer_view import OptimizerView
 
         VIEW_MAP = {
             "dashboard":   DashboardView,
@@ -141,6 +143,7 @@ class ForgeMasterApp(ctk.CTk):
             "equipements": EquipementsView,
             "skills":      SkillsView,
             "pets":        PetsView,
+            "optimizer":   OptimizerView,
         }
 
         # FIX : stocker la vue active par son id (pas via cget couleur)
