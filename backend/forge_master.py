@@ -577,3 +577,53 @@ def appliquer_pet(profil, pet_ancien, pet_nouveau):
     nouveau["attaque_total"] = nouveau["attaque_base"] * (1 + bonus / 100)
 
     return nouveau
+
+    MOUNT_PATCH_BACKEND = '''
+    MOUNT_FILE = os.path.join(_DIR, "mount.txt")
+    
+    MOUNT_STATS_KEYS = [
+        "hp_flat", "damage_flat", "health_pct", "damage_pct",
+        "melee_pct", "ranged_pct", "taux_crit", "degat_crit",
+        "health_regen", "lifesteal", "double_chance", "vitesse_attaque",
+        "skill_damage", "skill_cooldown", "chance_blocage"
+    ]
+    
+    def mount_vide():
+        return {k: 0.0 for k in MOUNT_STATS_KEYS}
+    
+    def charger_mount():
+        mount = mount_vide()
+        if not os.path.isfile(MOUNT_FILE):
+            return mount
+        with open(MOUNT_FILE, "r", encoding="utf-8") as f:
+            lignes = f.readlines()
+        for ligne in lignes:
+            ligne = ligne.strip()
+            if ligne.startswith("#") or ligne == "" or ligne.startswith("["):
+                continue
+            if "=" in ligne:
+                cle, val = ligne.split("=", 1)
+                cle, val = cle.strip(), val.strip()
+                try:
+                    mount[cle] = float(val)
+                except ValueError:
+                    pass
+        return mount
+    
+    def sauvegarder_mount(mount):
+        with open(MOUNT_FILE, "w", encoding="utf-8") as f:
+            f.write("# ============================================================\\n")
+            f.write("# FORGE MASTER — Mount actif (modifiable a la main)\\n")
+            f.write("# ============================================================\\n\\n")
+            f.write("[MOUNT]\\n")
+            for k in MOUNT_STATS_KEYS:
+                f.write(f"{k:20s} = {mount.get(k, 0.0)}\\n")
+    
+    def parser_mount(texte):
+        """Identique à parser_pet — réutilise la même logique."""
+        return parser_pet(texte)
+    
+    def appliquer_mount(profil, mount_ancien, mount_nouveau):
+        """Identique à appliquer_pet."""
+        return appliquer_pet(profil, mount_ancien, mount_nouveau)
+    '''

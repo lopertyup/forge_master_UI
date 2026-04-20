@@ -232,3 +232,74 @@ class GameController:
             ("skill_cooldown",  "⏱  Skill Cooldown",    False),
             ("chance_blocage",  "🛡  Block Chance",      False),
         ]
+
+    CONTROLLER_METHODS = '''
+        # ── Mount ────────────────────────────────────────────────
+    
+        def get_mount(self) -> dict:
+            return dict(self._mount)
+    
+        def importer_texte_mount(self, texte: str) -> dict:
+            return parser_mount(texte)
+    
+        def set_mount(self, mount: dict):
+            self._mount = mount
+            sauvegarder_mount(mount)
+    
+        def tester_mount(self, nouveau_mount: dict, callback):
+            """
+            Simule : NOUVEAU_MOI (avec nouveau mount) vs ANCIEN_MOI (avec ancien mount).
+            """
+            if self._profil is None:
+                self._dispatch(callback, 0, 0, 0)
+                return
+    
+            profil_actuel = dict(self._profil)
+            mount_actuel  = dict(self._mount)
+            skills        = list(self._skills)
+    
+            def _run():
+                import backend.forge_master as fm
+                duree_originale = fm.DUREE_MAX
+                fm.DUREE_MAX    = 60.0
+                try:
+                    profil_nouveau = appliquer_mount(profil_actuel, mount_actuel, nouveau_mount)
+                    sj = stats_combat(profil_nouveau)
+                    se = stats_combat(profil_actuel)
+                    wins, loses, draws = 0, 0, 0
+                    for _ in range(1000):
+                        r = fm.simuler(sj, se, skills, skills)
+                        if r == "WIN":    wins  += 1
+                        elif r == "LOSE": loses += 1
+                        else:             draws += 1
+                finally:
+                    fm.DUREE_MAX = duree_originale
+                self._dispatch(callback, wins, loses, draws)
+    
+            threading.Thread(target=_run, daemon=True).start()
+    '''
+    
+    print("=== INSTRUCTIONS D'INTÉGRATION ===")
+    print()
+    print("1. Dans backend/forge_master.py :")
+    print("   → Coller le contenu de MOUNT_PATCH_BACKEND après la section PETS")
+    print()
+    print("2. Dans game_controller.py :")
+    print("   → Dans les imports, ajouter :")
+    print("      charger_mount, sauvegarder_mount, parser_mount, appliquer_mount")
+    print()
+    print("   → Dans __init__, ajouter après self._pets = {} :")
+    print("      self._mount = {}")
+    print()
+    print("   → Dans reload(), ajouter :")
+    print("      self._mount = charger_mount()")
+    print()
+    print("   → Coller les méthodes de CONTROLLER_METHODS dans la classe")
+    print()
+    print("3. Dans ui/app.py :")
+    print('   → Ajouter dans nav_items : ("mount", "  🐴  Mount")')
+    print('   → Ajouter dans VIEW_MAP  : "mount": MountView')
+    print('   → Ajouter l\'import       : from ui.views.mount_view import MountView')
+    print()
+    print("4. Ajouter backend/mount.txt dans .gitignore")
+    print("   et créer backend/mount.txt.example (valeurs à zéro)")
