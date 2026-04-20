@@ -7,8 +7,12 @@
 ============================================================
 """
 
-import random
 import math
+import random
+from typing import Callable, Dict, List, Optional, Tuple
+
+from .simulation import simuler_100
+from .stats import stats_combat
 
 # ════════════════════════════════════════════════════════════
 #  CONFIGURATION
@@ -20,7 +24,7 @@ SELECTION_PCT = 0.30    # garder top 30%
 N_SURVIVORS   = max(2, round(N_BUILDS * SELECTION_PCT))  # ≈ 10
 
 # Plages par point (valeur ajoutée à chaque tirage)
-SUBSTATS_POOL = {
+SUBSTATS_POOL: Dict[str, Tuple[float, float]] = {
     "taux_crit":       (0.0,  12.0),
     "degat_crit":      (0.0, 100.0),
     "vitesse_attaque": (0.0,  40.0),
@@ -52,14 +56,11 @@ SUBSTATS_LABELS = {
     "health_pct":      "Health %",
 }
 
-# Valeur moyenne par tirage pour chaque stat
 SUBSTATS_MOY_PAR_TIRAGE = {
     k: abs(lo + hi) / 2 if (lo + hi) != 0 else 1.0
     for k, (lo, hi) in SUBSTATS_POOL.items()
 }
 
-# Maximum théorique = 24 tirages × valeur moyenne par tirage
-# → représente un build qui mettrait TOUS ses points dans cette stat
 SUBSTATS_MAX_THEORIQUE = {
     k: N_SUBSTATS * SUBSTATS_MOY_PAR_TIRAGE[k]
     for k in SUBSTATS_POOL
@@ -70,8 +71,8 @@ SUBSTATS_MAX_THEORIQUE = {
 #  GÉNÉRATION D'UN BUILD
 # ════════════════════════════════════════════════════════════
 
-def _build_depuis_substats(substats, hp_base, atk_base, type_attaque):
-    """Calcule hp_total et attaque_total depuis les substats + bases."""
+def _build_depuis_substats(substats: Dict, hp_base: float, atk_base: float,
+                            type_attaque: str) -> Dict:
     hp_total  = hp_base * (1 + substats["health_pct"] / 100)
     bonus_atq = substats["damage_pct"] + (
         substats["ranged_pct"] if type_attaque == "distance" else substats["melee_pct"])
@@ -87,16 +88,12 @@ def _build_depuis_substats(substats, hp_base, atk_base, type_attaque):
     }
 
 
-def _substats_vides():
+def _substats_vides() -> Dict[str, float]:
     return {k: 0.0 for k in SUBSTATS_POOL}
 
 
-def _distribuer_points(pool_actif):
-    """
-    Distribue N_SUBSTATS points sans biais :
-    chaque point va dans une stat aléatoire du pool actif,
-    avec une valeur uniforme dans son intervalle.
-    """
+def _distribuer_points(pool_actif: Dict[str, Tuple[float, float]]) -> Dict[str, float]:
+    """Distribue N_SUBSTATS points uniformément sur le pool actif."""
     substats = _substats_vides()
     keys = list(pool_actif.keys())
     for _ in range(N_SUBSTATS):
@@ -106,7 +103,7 @@ def _distribuer_points(pool_actif):
     return substats
 
 
-def build_aleatoire(hp_base, atk_base, type_attaque):
+def build_aleatoire(hp_base: float, atk_base: float, type_attaque: str) -> Dict:
     exclus   = "melee_pct" if type_attaque == "distance" else "ranged_pct"
     pool     = {k: v for k, v in SUBSTATS_POOL.items() if k != exclus}
     substats = _distribuer_points(pool)
@@ -117,11 +114,11 @@ def build_aleatoire(hp_base, atk_base, type_attaque):
 #  MUTATION LOCALE
 # ════════════════════════════════════════════════════════════
 
-def muter(build, hp_base, atk_base, type_attaque, force=None):
+def muter(build: Dict, hp_base: float, atk_base: float, type_attaque: str,
+          force: Optional[int] = None) -> Dict:
     """
-    Déplace 1 ou 2 points d'une stat vers une autre.
+    Déplace 1 à 3 points d'une stat vers une autre.
     Contrainte : la somme des points reste N_SUBSTATS.
-    force=None → aléatoire entre 1 et 2 (parfois 3 pour échapper aux optima locaux)
     """
     exclus   = "melee_pct" if type_attaque == "distance" else "ranged_pct"
     pool     = {k: v for k, v in SUBSTATS_POOL.items() if k != exclus}
@@ -156,8 +153,7 @@ def muter(build, hp_base, atk_base, type_attaque, force=None):
 #  ÉVALUATION
 # ════════════════════════════════════════════════════════════
 
-def evaluer(build, adversaire, skills, n_sims):
-    from backend.forge_master import simuler_100
+def evaluer(build: Dict, adversaire: Dict, skills: List, n_sims: int) -> float:
     wins, loses, draws = simuler_100(build, adversaire, skills, skills, n=n_sims)
     total = wins + loses + draws
     return wins / total if total > 0 else 0.0
@@ -167,12 +163,12 @@ def evaluer(build, adversaire, skills, n_sims):
 #  ANALYSE : MOYENNE + VARIANCE
 # ════════════════════════════════════════════════════════════
 
-def analyser(builds, scores):
+def analyser(builds: List[Dict], scores: List[float]) -> List[Tuple]:
     """
     Pour chaque substat, calcule dans le top 30% :
-      - pts_moy  : nombre de points investis en moyenne (moyenne / moy_par_tirage)
-      - pts_var  : écart-type du nombre de points (variance / moy_par_tirage)
-      - moyenne  : valeur brute moyenne (pour affichage)
+      - pts_moy  : nombre de points investis en moyenne
+      - pts_var  : écart-type du nombre de points
+      - moyenne  : valeur brute moyenne
       - variance : écart-type brut
 
     Retourne [(pts_moy, pts_var, moyenne, variance, key, label), ...]
@@ -205,32 +201,31 @@ def analyser(builds, scores):
 # ════════════════════════════════════════════════════════════
 
 def optimiser(
-    profil,
-    skills,
-    n_generations=8,
-    n_sims=100,
-    generation_cb=None,
-    progress_cb=None,
+    profil: Dict,
+    skills: List,
+    n_generations: int = 8,
+    n_sims: int = 100,
+    generation_cb: Optional[Callable] = None,
+    progress_cb: Optional[Callable] = None,
     stop_flag=None,
-):
+) -> Tuple[List[Dict], List[Tuple]]:
     hp_base      = profil["hp_base"]
     atk_base     = profil["attaque_base"]
     type_attaque = profil.get("type_attaque", "corps_a_corps")
 
-    from backend.forge_master import stats_combat
     adversaire = stats_combat(profil)
 
     builds = [build_aleatoire(hp_base, atk_base, type_attaque)
               for _ in range(N_BUILDS)]
 
-    top_builds = []
-    analyse    = []
+    top_builds: List[Dict] = []
+    analyse: List[Tuple]   = []
 
     for gen in range(1, n_generations + 1):
         if stop_flag and stop_flag.is_set():
             break
 
-        scores = []
+        scores: List[float] = []
         for i, b in enumerate(builds):
             if stop_flag and stop_flag.is_set():
                 break
@@ -248,7 +243,6 @@ def optimiser(
         wr_moyen   = sum(top_scores) / len(top_scores)
 
         if generation_cb:
-            # Meilleur build = premier du classement
             meilleur = top_builds[0]
             generation_cb(gen, top_builds, analyse, top_scores, wr_moyen, meilleur)
 
