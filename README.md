@@ -1,90 +1,90 @@
 # ⚔️ Forge Master UI
 
-Outil d'analyse et de simulation pour le jeu mobile **Forge Master**.  
-Permet de prédire les victoires/défaites, comparer des équipements et optimiser ses substats — directement depuis ton PC.
+Analysis and simulation tool for the mobile game **Forge Master**.  
+Predict win/loss outcomes, compare equipment and optimize your substats — directly from your PC.
 
 ---
 
-## 📋 Fonctionnalités
+## 📋 Features
 
-- **Simulateur** — prédit ton win rate contre un adversaire donné
-- **Comparateur d'équipements** — analyse automatiquement si un nouvel équipement est meilleur
-- **Optimiseur de substats** — trouve la meilleure répartition de tes points de substats
-- **Gestion des pets et montures**
+- **Combat Simulator** — predicts your win rate against a given opponent
+- **Equipment Comparator** — automatically analyzes whether new equipment is better
+- **Substat Optimizer** — finds the best distribution of your substat points
+- **Pets and Mounts management**
 
 ---
 
 ## 🛠️ Installation
 
-### 1. Installer Bluestacks
+### 1. Install Bluestacks
 
-Forge Master est un jeu mobile. Pour y jouer sur PC, tu as besoin de **BlueStacks** (émulateur Android).
+Forge Master is a mobile game. To play it on PC, you need **BlueStacks** (Android emulator).
 
-👉 Télécharge BlueStacks : https://www.bluestacks.com/fr/index.html
+👉 Download BlueStacks: https://www.bluestacks.com/index.html
 
-Lance BlueStacks, connecte-toi au Google Play Store et installe **Forge Master**.
-
----
-
-### 2. Télécharger le code
-
-Sur la page GitHub du projet, clique sur le bouton vert **Code** puis **Download ZIP**.
-
-Extrais le dossier où tu veux sur ton PC.
+Launch BlueStacks, sign in to the Google Play Store and install **Forge Master**.
 
 ---
 
-### 3. Installer Python
+### 2. Download the code
 
-👉 Télécharge Python : https://www.python.org/downloads/
+On the GitHub project page, click the green **Code** button then **Download ZIP**.
 
-> ⚠️ **Important** : lors de l'installation, coche bien la case **"Add Python to PATH"** avant de cliquer sur Install.
+Extract the folder wherever you want on your PC.
 
 ---
 
-### 4. Installer les dépendances
+### 3. Install Python
 
-Ouvre le **terminal** dans le dossier du projet :
-- Sur Windows : clic droit dans le dossier → **Ouvrir dans le terminal**
+👉 Download Python: https://www.python.org/downloads/
 
-Tape ensuite cette commande et appuie sur Entrée :
+> ⚠️ **Important**: during installation, make sure to check **"Add Python to PATH"** before clicking Install.
+
+---
+
+### 4. Install dependencies
+
+Open the **terminal** in the project folder:
+- On Windows: right-click in the folder → **Open in Terminal**
+
+Then type the following command and press Enter:
 
 ```
 pip install customtkinter pillow
 ```
 
-Attends que l'installation se termine.
+Wait for the installation to complete.
 
 ---
 
-### 5. Lancer l'application
+### 5. Launch the application
 
-Dans le même terminal, tape :
+In the same terminal, type:
 
 ```
 python main.py
 ```
 
-L'application s'ouvre. 🎉
+The application opens. 🎉
 
 ---
 
-## 📸 Comment récupérer le texte depuis le jeu
+## 📸 How to get text from the game
 
-L'outil fonctionne par **copier-coller de texte** depuis des captures d'écran.  
-Windows dispose d'un outil intégré qui permet de capturer une zone d'écran et d'en extraire le texte automatiquement.
+The tool works by **copy-pasting text** from screenshots.  
+Windows has a built-in tool that lets you capture a screen area and automatically extract the text.
 
-**Raccourci :** `Windows + Shift + T`  
-Sélectionne la zone voulue → clique sur la notification → utilise **"Copier le texte"** dans l'outil de capture.
+**Shortcut:** `Windows + Shift + T`  
+Select the desired area — the text is automatically copied to your clipboard.
 
 ---
 
-## 🎮 Comment utiliser l'outil
+## 🎮 How to use the tool
 
-### Importer ton profil
+### Import your profile
 
-Dans **Forge Master**, ouvre ton profil de personnage et capture la zone de statistiques.  
-Le texte doit ressembler à ceci :
+In **Forge Master**, open your character profile and capture the stats area.  
+The text should look like this:
 
 ```
 Lv. 23 Forge
@@ -102,15 +102,15 @@ Lv. 23 Forge
 +12.3% Health
 ```
 
-Colle ce texte dans la section **Dashboard** de l'application.
+Paste this text into the **Dashboard** section of the application.
 
 ---
 
-### Comparateur d'équipements
+### Equipment Comparator
 
-Dans le jeu, ouvre la comparaison entre ton équipement actuel et le nouveau.  
-Capture la zone complète qui contient les **deux équipements** avec le tag **NEW!**.  
-Le texte doit ressembler à ceci :
+In the game, open the comparison between your current equipment and the new one.  
+Capture the full area containing **both items** with the **NEW!** tag.  
+The text should look like this:
 
 ```
 Equipped
@@ -128,16 +128,16 @@ NEW!
 +4.34% Double Chance
 ```
 
-> ⚠️ Le texte doit impérativement contenir **NEW!** pour être reconnu.
+> ⚠️ The text must contain **NEW!** to be recognized.
 
-Colle ce texte dans l'onglet **Équipements** — la simulation se lance automatiquement et te dit si le nouvel équipement est meilleur.
+Paste this text into the **Equipment** tab — the simulation launches automatically and tells you whether the new equipment is better.
 
 ---
 
-### Gestion des Pets
+### Pets Management
 
-Dans le jeu, ouvre la page de ton pet et capture ses statistiques.  
-Le texte doit ressembler à ceci :
+In the game, open your pet's page and capture its stats.  
+The text should look like this:
 
 ```
 Lv.1
@@ -148,16 +148,16 @@ Lv.1
 +5.59% Ranged Damage
 ```
 
-> 💡 **Important** : l'outil compare toujours les pets à leur **niveau 1**.  
-> Pourquoi ? Parce que les stats principales (Damage et Health) augmentent avec le niveau, mais les substats (%, bonus) restent identiques.  
-> En ramenant tout au niveau 1, deux pets peuvent être comparés équitablement peu importe leur niveau actuel.  
-> La librairie interne connaît les stats de base au niveau 1 de chaque type de pet.
+> 💡 **Important**: the tool always compares pets at **level 1**.  
+> Why? Because main stats (Damage and Health) scale with level, but substats (%, bonuses) remain identical.  
+> By bringing everything to level 1, two pets can be compared fairly regardless of their current level.  
+> The internal library knows the base stats at level 1 for each pet type.
 
 ---
 
-### Gestion des Montures
+### Mounts Management
 
-Même principe que les pets. Capture les stats de ta monture :
+Same principle as pets. Capture your mount's stats:
 
 ```
 Lv.1
@@ -167,52 +167,52 @@ Lv.1
 +6.95% Health
 ```
 
-> 💡 Même logique que les pets : tout est comparé au **niveau 1**.
+> 💡 Same logic as pets: everything is compared at **level 1**.
 
 ---
 
-### Simulateur de combat
+### Combat Simulator
 
-1. Va dans l'onglet **Simulateur**
-2. Entre les statistiques de ton adversaire (même méthode que pour ton profil) attention pense à indiquer ses skills et son type d'attauqe (distance/corp-a-corp).
-3. Clique sur **Simuler** — l'outil lance 1000 combats et affiche ton win rate
-
----
-
-### Optimiseur de substats
-
-1. Va dans l'onglet **Optimiseur**
-2. Choisis le nombre de générations et de simulations
-3. Clique sur **Lancer** — l'outil teste des milliers de combinaisons de substats
-4. À la fin, il t'affiche :
-   - Les stats les plus importantes pour ton profil
-   - Le meilleur build trouvé comparé à ton build actuel
-   - Les stats à prioriser en priorité
+1. Go to the **Simulator** tab
+2. Enter your opponent's statistics (same method as for your profile) — don't forget to specify their skills and attack type (melee/ranged)
+3. Click **Simulate** — the tool runs 1000 fights and displays your win rate
 
 ---
 
-## ❓ Problèmes fréquents
+### Substat Optimizer
 
-**`python` n'est pas reconnu dans le terminal**  
-→ Réinstalle Python en cochant bien **"Add Python to PATH"**
+1. Go to the **Optimizer** tab
+2. Choose the number of generations and simulations
+3. Click **Launch** — the tool tests thousands of substat combinations
+4. At the end, it shows you:
+   - The most important stats for your profile
+   - The best build found compared to your current build
+   - The stats to prioritize
 
-**`pip install` échoue**  
-→ Essaie avec : `pip install customtkinter pillow --break-system-packages`
+---
 
-**L'application ne s'ouvre pas**  
-→ Vérifie que tu es bien dans le bon dossier dans le terminal avant de taper `python main.py`
+## ❓ Common issues
 
-**Le texte n'est pas reconnu**  
-→ Assure-toi que la capture est nette et que le texte est bien copié sans caractères parasites
+**`python` is not recognized in the terminal**  
+→ Reinstall Python making sure to check **"Add Python to PATH"**
+
+**`pip install` fails**  
+→ Try: `pip install customtkinter pillow --break-system-packages`
+
+**The application doesn't open**  
+→ Make sure you are in the correct folder in the terminal before typing `python main.py`
+
+**The text is not recognized**  
+→ Make sure the screenshot is clear and the text is copied without extra characters
 
 ---
 
 ## 📌 Notes
 
-- L'outil tourne entièrement en local sur ton PC, aucune donnée n'est envoyée
-- Les simulations sont basées sur les statistiques que tu rentres — plus elles sont précises, plus les résultats sont fiables
-- L'optimiseur peut prendre quelques minutes selon les paramètres choisis
+- The tool runs entirely locally on your PC, no data is sent anywhere
+- Simulations are based on the statistics you enter — the more accurate they are, the more reliable the results
+- The optimizer may take a few minutes depending on the chosen parameters
 
 ---
 
-*Projet open source — contributions bienvenues !*
+*Open source project — contributions welcome!*
