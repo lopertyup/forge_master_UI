@@ -132,6 +132,8 @@ NEW!
 
 Paste this text into the **Equipment** tab — the simulation launches automatically and tells you whether the new equipment is better.
 
+![Equipment Comparator](screenshots/equipment_comparator.png)
+
 ---
 
 ### Pets Management
