@@ -49,7 +49,8 @@ class SimulatorView(ctk.CTkFrame):
         body = ctk.CTkFrame(self, fg_color=C["bg"], corner_radius=0)
         body.grid(row=1, column=0, sticky="nsew", padx=16, pady=16)
         body.grid_columnconfigure((0, 1), weight=1)
-        body.grid_rowconfigure(1, weight=1)
+        body.grid_rowconfigure(0, weight=1)
+        body.grid_rowconfigure(1, weight=0)
 
         player_card = ctk.CTkFrame(body, fg_color=C["card"], corner_radius=12)
         player_card.grid(row=0, column=0, padx=(0, 8), pady=(0, 8), sticky="nsew")

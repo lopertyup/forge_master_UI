@@ -210,43 +210,41 @@ class ImportDialog(ctk.CTkToplevel):
         self.controller = controller
         self.app        = app
         self.title("Update profile")
-        self.geometry("660x700")
-        self.minsize(600, 500)
-        self.resizable(True, True)
+        self.resizable(False, False)
         self.configure(fg_color=C["surface"])
         self.grab_set()
         self.transient(parent)
         self._build()
+        # After all widgets are placed, measure the natural height and lock it.
+        # This eliminates blank space below the skills grid.
+        self.update_idletasks()
+        self.geometry(f"660x{self.winfo_reqheight()}")
 
     def _build(self) -> None:
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=0)
-        self.grid_columnconfigure(0, weight=1)
+        # Plain frame — no CTkScrollableFrame — so the window height
+        # matches content with zero leftover space.
+        content = ctk.CTkFrame(self, fg_color=C["surface"], corner_radius=0)
+        content.pack(side="top", fill="x")
 
-        scroll = ctk.CTkScrollableFrame(self, fg_color=C["surface"],
-                                         corner_radius=0)
-        scroll.grid(row=0, column=0, sticky="nsew")
-        scroll.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(scroll, text="Paste the profile text",
+        ctk.CTkLabel(content, text="Paste the profile text",
                      font=("Segoe UI", 16, "bold"),
                      text_color=C["text"]).pack(padx=24, pady=(20, 4),
                                                  anchor="w")
 
-        ctk.CTkLabel(scroll,
+        ctk.CTkLabel(content,
                      text="Copy the stat summary from the game and paste it below",
                      font=FONT_BODY, text_color=C["muted"]).pack(
             padx=24, pady=(0, 8), anchor="w")
 
         self.text_box = ctk.CTkTextbox(
-            scroll, height=180, font=FONT_MONO,
+            content, height=180, font=FONT_MONO,
             fg_color=C["bg"], text_color=C["text"],
             border_color=C["border"], border_width=1,
         )
         self.text_box.pack(padx=24, pady=(0, 12), fill="x")
 
         # Attack type
-        type_frame = ctk.CTkFrame(scroll, fg_color=C["card"], corner_radius=8)
+        type_frame = ctk.CTkFrame(content, fg_color=C["card"], corner_radius=8)
         type_frame.pack(padx=24, pady=(0, 12), fill="x")
         ctk.CTkLabel(type_frame, text="Attack type:",
                      font=FONT_BODY, text_color=C["text"]).pack(
@@ -262,32 +260,31 @@ class ImportDialog(ctk.CTkToplevel):
                                                        pady=10)
 
         # Skills
-        ctk.CTkLabel(scroll, text="Active skills — select up to 3",
+        ctk.CTkLabel(content, text="Active skills — select up to 3",
                      font=FONT_BODY, text_color=C["text"]).pack(
             padx=24, pady=(0, 6), anchor="w")
 
-        all_skills     = self.controller.get_all_skills()
-        current_codes  = {c for c, _ in self.controller.get_active_skills()}
+        all_skills    = self.controller.get_all_skills()
+        current_codes = {c for c, _ in self.controller.get_active_skills()}
         self._skill_vars = {
             code: ctk.BooleanVar(value=(code in current_codes))
             for code in all_skills
         }
 
         sk_frame, _btns = skill_icon_grid(
-            scroll, all_skills, self._skill_vars, on_toggle=self._toggle_skill,
+            content, all_skills, self._skill_vars, on_toggle=self._toggle_skill,
         )
-        sk_frame.pack(padx=24, pady=(0, 8), fill="x")
+        sk_frame.pack(padx=24, pady=(0, 4), fill="x")
 
         self._skill_limit_label = ctk.CTkLabel(
-            scroll, text="", font=FONT_SMALL, text_color=C["lose"])
-        self._skill_limit_label.pack(padx=24, pady=(0, 8))
+            content, text="", font=FONT_SMALL, text_color=C["lose"])
+        self._skill_limit_label.pack(padx=24, pady=(0, 4))
 
-        # Fixed button bar
+        # ── Button bar — packed after content, always visible ──
         btn_bar = ctk.CTkFrame(self, fg_color=C["card"], corner_radius=0,
                                 height=64)
-        btn_bar.grid(row=1, column=0, sticky="ew")
-        btn_bar.grid_propagate(False)
-        btn_bar.grid_columnconfigure(0, weight=1)
+        btn_bar.pack(side="top", fill="x")
+        btn_bar.pack_propagate(False)
 
         self._lbl_btn_status = ctk.CTkLabel(
             btn_bar, text="", font=FONT_SMALL, text_color=C["lose"])

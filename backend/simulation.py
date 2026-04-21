@@ -141,7 +141,10 @@ def simulate(
     o = Fighter(se, skills_o)
 
     if p.attack_type == o.attack_type:
-        p.timer, o.timer = 0.0, 0.0
+        # Randomise the tiny offset so neither fighter has a systematic
+        # first-strike advantage when stats are identical.
+        offset = random.uniform(0.0, p.interval)
+        p.timer, o.timer = offset, offset
     elif p.attack_type == "ranged":
         p.timer, o.timer = 0.0, -RANGED_LEAD
     else:
@@ -159,22 +162,38 @@ def simulate(
             sk.tick(TICK, o, p)
         p.timer += TICK
         o.timer += TICK
-        if p.timer >= p.interval:
-            p.timer = 0.0
-            if o.alive():
-                p.strike(o)
-        if o.timer >= o.interval:
+
+        # Randomise strike order each tick to avoid positional bias
+        # when both fighters are ready at the same time.
+        p_ready = p.timer >= p.interval
+        o_ready = o.timer >= o.interval
+        if p_ready and o_ready and random.random() < 0.5:
+            # o strikes first this tick
             o.timer = 0.0
             if p.alive():
                 o.strike(p)
+            p.timer = 0.0
+            if o.alive():
+                p.strike(o)
+        else:
+            if p_ready:
+                p.timer = 0.0
+                if o.alive():
+                    p.strike(o)
+            if o_ready:
+                o.timer = 0.0
+                if p.alive():
+                    o.strike(p)
+
         t += TICK
 
     if p.alive() and not o.alive():
         return "WIN"
     if o.alive() and not p.alive():
         return "LOSE"
+    # Both dead simultaneously → DRAW (not LOSE)
     if not p.alive() and not o.alive():
-        return "LOSE"
+        return "DRAW"
     return "DRAW"
 
 

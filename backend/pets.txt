@@ -22,25 +22,6 @@ skill_cooldown       = 0.0
 block_chance         = 0.0
 
 [PET2]
-__name__             = Treant
-__rarity__           = ultimate
-hp_flat              = 9000000.0
-damage_flat          = 375000.0
-health_pct           = 0.0
-damage_pct           = 0.0
-melee_pct            = 0.0
-ranged_pct           = 0.0
-crit_chance          = 12.0
-crit_damage          = 0.0
-health_regen         = 0.0
-lifesteal            = 0.0
-double_chance        = 20.0
-attack_speed         = 0.0
-skill_damage         = 0.0
-skill_cooldown       = 0.0
-block_chance         = 0.0
-
-[PET3]
 __name__             = Enchanted Elk
 __rarity__           = ultimate
 hp_flat              = 6000000.0
@@ -58,3 +39,23 @@ attack_speed         = 0.0
 skill_damage         = 0.0
 skill_cooldown       = 0.0
 block_chance         = 0.0
+
+[PET3]
+__name__             = Treant
+__rarity__           = ultimate
+hp_flat              = 9000000.0
+damage_flat          = 375000.0
+health_pct           = 0.0
+damage_pct           = 0.0
+melee_pct            = 0.0
+ranged_pct           = 0.0
+crit_chance          = 0.0
+crit_damage          = 0.0
+health_regen         = 0.0
+lifesteal            = 2.63
+double_chance        = 0.0
+attack_speed         = 39.9
+skill_damage         = 0.0
+skill_cooldown       = 0.0
+block_chance         = 0.0
+
