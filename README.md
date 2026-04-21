@@ -69,18 +69,105 @@ L'application s'ouvre. 🎉
 
 ---
 
+## 📸 Comment récupérer le texte depuis le jeu
+
+L'outil fonctionne par **copier-coller de texte** depuis des captures d'écran.  
+Windows dispose d'un outil intégré qui permet de capturer une zone d'écran et d'en extraire le texte automatiquement.
+
+**Raccourci :** `Windows + Shift + S`  
+Sélectionne la zone voulue → clique sur la notification → utilise **"Copier le texte"** dans l'outil de capture.
+
+---
+
 ## 🎮 Comment utiliser l'outil
 
 ### Importer ton profil
 
-L'outil a besoin de tes statistiques de jeu. Pour les récupérer :
+Dans **Forge Master**, ouvre ton profil de personnage et capture la zone de statistiques.  
+Le texte doit ressembler à ceci :
 
-1. Dans **Forge Master** (sur BlueStacks), ouvre ton profil de personnage
-2. Utilise l'**outil Capture d'écran de Windows** pour capturer l'écran
-   - Raccourci : `Windows + Shift + S`
-   - Sélectionne la zone avec tes stats
-3. L'outil de capture inclut une fonction **OCR** (reconnaissance de texte) — copie le texte détecté
-4. Colle ce texte dans la section **Dashboard** de l'application
+```
+Lv. 23 Forge
+5.04m Total Damage
+38.9m Total Health
++22.2% Critical Chance
++147% Critical Damage
++5.78% Health Regen
++69.8% Lifesteal
++116% Double Chance
++22.2% Damage
++16.1% Melee Damage
++14.8% Ranged Damage
++98.2% Attack Speed
++12.3% Health
+```
+
+Colle ce texte dans la section **Dashboard** de l'application.
+
+---
+
+### Comparateur d'équipements
+
+Dans le jeu, ouvre la comparaison entre ton équipement actuel et le nouveau.  
+Capture la zone complète qui contient les **deux équipements** avec le tag **NEW!**.  
+Le texte doit ressembler à ceci :
+
+```
+Equipped
+Lv. 54
+[Quantum] Gravity Gloves
+144k Damage
++31.4% Attack Speed
++19.5% Lifesteal
+4
+Lv. 81
+NEW!
+[Quantum] Gravity Gloves
+188k Damage
++19.9% Critical Damage
++4.34% Double Chance
+```
+
+> ⚠️ Le texte doit impérativement contenir **NEW!** pour être reconnu.
+
+Colle ce texte dans l'onglet **Équipements** — la simulation se lance automatiquement et te dit si le nouvel équipement est meilleur.
+
+---
+
+### Gestion des Pets
+
+Dans le jeu, ouvre la page de ton pet et capture ses statistiques.  
+Le texte doit ressembler à ceci :
+
+```
+Lv.1
+[Ultimate] Enchanted Elk
+855k Damage
+6.84m Health
++5.97% Health Regen
++5.59% Ranged Damage
+```
+
+> 💡 **Important** : l'outil compare toujours les pets à leur **niveau 1**.  
+> Pourquoi ? Parce que les stats principales (Damage et Health) augmentent avec le niveau, mais les substats (%, bonus) restent identiques.  
+> En ramenant tout au niveau 1, deux pets peuvent être comparés équitablement peu importe leur niveau actuel.  
+> La librairie interne connaît les stats de base au niveau 1 de chaque type de pet.
+
+---
+
+### Gestion des Montures
+
+Même principe que les pets. Capture les stats de ta monture :
+
+```
+Lv.1
+[Rare] Brown Horse
+10.4k Damage
+83.2k Health
++6.95% Health
+```
+
+> 💡 Même logique que les pets : tout est comparé au **niveau 1**.
 
 ---
 
@@ -89,17 +176,6 @@ L'outil a besoin de tes statistiques de jeu. Pour les récupérer :
 1. Va dans l'onglet **Simulateur**
 2. Entre les statistiques de ton adversaire (même méthode que pour ton profil)
 3. Clique sur **Simuler** — l'outil lance 1000 combats et affiche ton win rate
-
----
-
-### Comparateur d'équipements
-
-1. Dans le jeu, ouvre la comparaison entre ton équipement actuel et le nouveau
-2. Utilise `Windows + Shift + S` pour capturer l'écran et copier le texte
-3. Colle le texte dans l'onglet **Équipements** — la simulation se lance automatiquement
-4. L'outil te dit si le nouvel équipement est meilleur et te propose de l'appliquer
-
-> Le texte doit contenir **NEW!** pour être reconnu.
 
 ---
 
@@ -117,14 +193,17 @@ L'outil a besoin de tes statistiques de jeu. Pour les récupérer :
 
 ## ❓ Problèmes fréquents
 
-**`python` n'est pas reconnu dans le terminal**
+**`python` n'est pas reconnu dans le terminal**  
 → Réinstalle Python en cochant bien **"Add Python to PATH"**
 
-**`pip install` échoue**
+**`pip install` échoue**  
 → Essaie avec : `pip install customtkinter pillow --break-system-packages`
 
-**L'application ne s'ouvre pas**
+**L'application ne s'ouvre pas**  
 → Vérifie que tu es bien dans le bon dossier dans le terminal avant de taper `python main.py`
+
+**Le texte n'est pas reconnu**  
+→ Assure-toi que la capture est nette et que le texte est bien copié sans caractères parasites
 
 ---
 
