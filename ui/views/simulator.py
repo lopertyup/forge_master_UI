@@ -25,6 +25,7 @@ from ui.theme import (
     rarity_color,
 )
 from ui.widgets import (
+    attach_scan_button,
     big_counter,
     build_header,
     skill_icon_grid,
@@ -136,7 +137,23 @@ class SimulatorView(ctk.CTkFrame):
             fg_color=C["bg"], text_color=C["text"],
             border_color=C["border"], border_width=1,
         )
-        self.opp_textbox.pack(padx=12, pady=(4, 8), fill="x")
+        self.opp_textbox.pack(padx=12, pady=(4, 4), fill="x")
+
+        # ── Scan row (OCR capture for opponent) ────────────
+        scan_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        scan_row.pack(padx=12, pady=(0, 6), fill="x")
+        self._lbl_scan_status = ctk.CTkLabel(
+            scan_row, text="", font=FONT_SMALL, text_color=C["muted"])
+        self._lbl_scan_status.pack(side="right", padx=(8, 0))
+        attach_scan_button(
+            parent_btn_frame=scan_row,
+            textbox=self.opp_textbox,
+            status_lbl=self._lbl_scan_status,
+            scan_key="opponent",
+            scan_fn=self.controller.scan,
+            captures_fn=self.controller.get_zone_captures,
+            on_scan_ready=self._auto_run_if_ready,
+        )
 
         type_f = ctk.CTkFrame(scroll, fg_color="transparent")
         type_f.pack(padx=12, fill="x")
@@ -235,6 +252,19 @@ class SimulatorView(ctk.CTkFrame):
         self._lbl_verdict.grid(row=3, column=0, columnspan=3, pady=(8, 16))
 
     # ── Logic ─────────────────────────────────────────────────
+
+    def _auto_run_if_ready(self) -> None:
+        """After an OCR capture fills the opponent textbox, auto-run the
+        simulation — but ONLY if at least one opponent skill is selected.
+        Otherwise keep the textbox populated and wait for the user to
+        pick the skills and click Run."""
+        selected = [c for c, v in self._opp_skill_vars.items() if v.get()]
+        if selected:
+            self._run()
+        else:
+            self._lbl_scan_status.configure(
+                text="✓ OCR complete — select opponent skills, then Run.",
+                text_color=C["muted"])
 
     def _run(self) -> None:
         if not self.controller.has_profile():

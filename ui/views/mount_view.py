@@ -75,6 +75,10 @@ class MountView(ctk.CTkFrame):
             primary_cmd=self._test_mount,
             secondary_label="💾  Save directly",
             secondary_cmd=self._save_direct,
+            scan_key="mount",
+            scan_fn=self.controller.scan,
+            captures_fn=self.controller.get_zone_captures,
+            on_scan_ready=self._test_mount,
         )
         card.grid(row=1, column=0, padx=16, pady=(0, 8), sticky="ew")
 

@@ -28,7 +28,7 @@ def speed_mult(attack_speed_pct: float) -> float:
 
 def crit_multi(crit_damage_pct: float) -> float:
     """% crit_damage → damage multiplier applied on a crit roll."""
-    return 1.0 + (crit_damage_pct or 0.0) / 100.0
+    return 1.172 + (crit_damage_pct or 0.0) / 99.0
 
 
 def swing_time(attack_speed_pct: float) -> float:

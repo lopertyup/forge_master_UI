@@ -19,6 +19,7 @@ from ui.views.optimizer_view import OptimizerView
 from ui.views.pets_view    import PetsView
 from ui.views.simulator  import SimulatorView
 from ui.views.skills_view  import SkillsView
+from ui.views.zones_view   import ZonesView
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
@@ -33,7 +34,13 @@ _NAV_ITEMS = [
     ("pets",        "  🐾  Pets",        PetsView),
     ("optimizer",   "  🧬  Optimizer",   OptimizerView),
     ("mount",       "  🐴  Mount",       MountView),
+    ("zones",       "  📐  Zones",       ZonesView),
 ]
+
+# Main-window geometry — fixed (no session persistence).
+# Dimensions tuned so the window sits flush against the left edge of the
+# screen and leaves room for BlueStacks on the right.
+_MAIN_GEOMETRY = "900x641+-9+0"
 
 
 class ForgeMasterApp(ctk.CTk):
@@ -45,7 +52,7 @@ class ForgeMasterApp(ctk.CTk):
         self.controller.set_tk_root(self)
 
         self.title("Forge Master")
-        self.geometry("1100x700")
+        self.geometry(_MAIN_GEOMETRY)
         self.minsize(900, 600)
         self.configure(fg_color=C["bg"])
 

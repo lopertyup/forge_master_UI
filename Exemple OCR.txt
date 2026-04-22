@@ -1,0 +1,589 @@
+Fix a faire, pannel
+
+équipements (plusieurs exemples) --> O pour original (normalement lu par parser) et N pour nouveau (lu par OCR) :
+
+---------------------------------------------------------------------------
+
+N
+
+Equipped
+[Quantum]HiggsCollar
+210kDamage
+LV.92
++33.3%AttackSpeed
++25.7%DoubleChance
+[Quantum]VoidNecklace
+223kDamage
+LV.98
++1.84%BlockChance
+NEW!
++13.4%Health
+Sell
+Equip
+
+O
+
+Equipped
+
+Lv.92
+
+[Quantum] Higgs Collar
+210k Damage
++33.3% Attack Speed
++25.7% Double Chance
+
+Lv. 98
+
+NEW!
+
+[Quantum] Void Necklace
+223k Damage
++1.84% Block Chance
++13.4% Health
+
+Sell
+
+Equip
+
+---------------------------------------------------------------------------
+
+N
+
+Equipped
+[Quantum]NeutrinoBelt
+1.84mHealth
+LV.101
++5.13%HealthRegen
++9.54%Damage
+[Quantum]NeutrinoBelt
+1.86mHealth
+LV.102
++8.73%AttackSpeed
+NEW!
++25.9%MeleeDamage
+Sell
+Equip
+
+O
+
+Equipped
+
+Lv. 101
+
+[Quantum] Neutrino Belt
+1.84m Health
++5.13% Health Regen
++9.54% Damage
+
+4
+
+Lv. 102
+
+NEW!
+
+[Quantum] Neutrino Belt
+1.86m Health
++8.73% Attack Speed
++25.9% Melee Damage
+
+Sell
+
+Equip
+
+---------------------------------------------------------------------------
+
+N
+
+Equipped
+[Quantum]NeutrinoBelt
+1.84mHealth
+LV.101
++5.13%HealthRegen
++9.54%Damage
+[Quantum]BlackBelt
+1.88mHealth
+LV.103
++11.4%SkillDamage
+NEW!
++4.1%HealthRegen
+Sell
+Equip
+
+O
+
+Equipped
+
+Lv. 101
+
+[Quantum] Neutrino Belt
+1.84m Health
++5.13% Health Regen
++9.54% Damage
+
+4
+
+Lv. 103
+
+NEW!
+
+[Quantum] Black Belt
+1.88m Health
++11.4% Skill Damage
++4.1% Health Regen
+
+Sell
+
+Equip
+
+---------------------------------------------------------------------------
+
+N (cas pour une substat) (équipement n°2)
+
+Equipped
+[Quantum]AntimatterFeet
+1.8mHealth
+66:07
++10.2%CriticalChance
++11.4%RangedDamage
+[interstellar]RoboFeet
+117kHealth
+LO.103
++1.2%HealthRegen
+NEW!
+Sell
+Equip
+
+O
+
+Equipped
+
+Lv.99
+
+[Quantum] Antimatter Feet
+1.8m Health
++10.2% Critical Chance
++11.4% Ranged Damage
+
+Lv. 103
+
+NEW!
+
+[Interstellar] Robo Feet
+117k Health
++1.2% Health Regen
+
+Sell
+
+Equip
+
+---------------------------------------------------------------------------
+
+N (cas pour une substat) (2 équipements)
+
+Equipped
+[interstellar]RoboFeet
+117kHealth
+LO.103
++1.2%HealthRegen
+[interstellar]HydraulicFeet
+116kHealth
+LV.102
++44.2%MeleeDamage
+NEW!
+Sell
+Equip
+
+O
+
+Equipped
+
+LV. 103
+
+[Interstellar] Robo Feet
+117k Health
++1.2% Health Regen
+
+Lv. 102
+
+NEW!
+
+[Interstellar] Hydraulic Feet
+116k Health
++44.2% Melee Damage
+
+Sell
+
+Equip
+
+---------------------------------------------------------------------------
+
+N (cas pour arme) (damage ranged)
+
+Equipped
+[Quantum]BlackGun
+210kDamage(ranged)
+LV.92
++14.3%Lifesteal
++10.6%Damage
+[Quantum]BlackStaff
+223kDamage(ranged)
+LV.98
++24.2%SkillDamage
+NEW!
++1.17%Lifesteal
+Sell
+Equip
+
+O
+
+Equipped
+
+Lv. 92
+
+[Quantum] Black Gun
+210k Damage (ranged)
++14.3% Lifesteal
++10.6% Damage
+
+Lv. 98
+
+NEW!
+
+[Quantum] Black Staff
+223k Damage (ranged)
++24.2% Skill Damage
++1.17% Lifesteal
+
+Sell
+
+Equip
+
+---------------------------------------------------------------------------
+
+N (cas pour une substat) (équipement n°1)
+
+Equipped
+[interstellar]RoboFeet
+117kHealth
+LO.103
++1.2%HealthRegen
+[Quantum]AntigravityBoots
+1.77mHealth
+LV.97
++7.58%SkillDamage
+NEW!
++3.91%RangedDamage
+Sell
+Equip
+
+O
+
+Equipped
+
+Lv. 103
+
+[Interstellar] Robo Feet
+117k Health
++1.2% Health Regen
+
+Lv. 97
+
+NEW!
+
+[Quantum] Antigravity Boots
+1.77m Health 4
++7.58% Skill Damage
++3.91% Ranged Damage
+
+Sell
+
+Equip
+
+---------------------------------------------------------------------------
+---------------------------------------------------------------------------
+
+Stats profil
+
+N (les deux scans ce combine sans traitements)
+
+lopertyup y
+[-FR-]
+Lv. 23 Forge
+X,227m
+5.51mTotalDamage
+31.7mTotalHealth
+LV.103
+V.-103
+54
+LV.78
+LV.92
+LV.97
+LV.102
+LV.3
+LV.15
+LV.3
+LV.8
++10.6%CriticalChance
++95.2%CriticalDamage
++10.5% Health Regen
++82.1%Lifesteal
++64.4%DoubleChance
++10.6%Damage
++161%Moloonamano
+
+lopertyupoy
+[-FR-]
+Lv. 23 Forge
+Y.227m
+5.51mTotalDamage
+31.7mTotalHealth
+LV.103
+LV.54
+LV.103
+LV.78
+LV.92
+LV.97
+LV.102
+LV.+7
+LV.3
+LV.153
+LV.3
+LV.8
++64.4%DoubleChance
++10.6%Damage
++16.1%MeleeDamage
++21.6%RangedDamage
++164%AttackSpeed
++7.58%SkillDamage*
+
+O
+
+Lv. 23 Forge
+5.51m Total Damage
+31.7m Total Health
++10.6% Critical Chance
++95.2% Critical Damage
++10.5% Health Regen
++82.1% Lifesteal
++64.4% Double Chance
++10.6% Damage
++16.1% Melee Damage
++21.6% Ranged Damage
++164% Attack Speed
++7.58% Skill Damage
+
+---------------------------------------------------------------------------
+
+Adversaire (similaire a profile dans son fonctionnement)
+
+N
+
+ScgEric o
+[SHAKS]
+Lv.24Forge
+X410m
+10mTotalDamage
+56.3mTotalHealth
+LV.106
+LV.106
+LV.108
+104
+66:7
+LV.108
+LV.101
+Lv.32
+V.4
+LV.4
+LV.4
+LV23
+L0.22
+LV.25
++5.39%CriticalChance
++178%CriticalDamage
++43.1%HealthRegen
++8.32%Lifesteal
++45.8%DoubleChance
++30.6%Damage
++757%Moloonamano
+
+SegEric o
+[SHAKS]
+Lv.24 Forge
+X410m
+10mTotalDamage
+56.3mTotalHealth
+LV.106
+104
+LV.106
+LV.108
+6607
+LV.108
+LV.101
+Lv.32
+LV.4
+L0.23
+L.22
+Lv.25
++8.32%Lifesteal
++45.8%DoubleChance
++30.6%Damage
++75.7%MeleeDamage
++24.9%SkillDamage
++14.1%Health
+
+O
+
+Lv. 24 Forge
+10m Total Damage
+56.3m Total Health
++5.39% Critical Chance
++178% Critical Damage
++43.1% Health Regen
++8.32% Lifesteal
++45.8% Double Chance
++30.6% Damage
++75.7% Melee Damage
++24.9% Skill Damage
++14.1% Health
+
+------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Pets
+
+N (deux substat)
+
+[Ultimate] Electry
+Equipped
+1.47mDamage
+3.93mHealth
+LV15
++33.5%AttackSpeed
++19.7%LiFesteal
+Upgrade
+Remove
+
+O
+
+Equipped
+
+LV. 15
+
+[Ultimate] Electry
+1.47m Damage
+3.93m Health
++33.5% Attack Speed
++19.7% Lifesteal
+
+Upgrade
+
+Remove
+
+---------------------------------------------------------------------------
+
+N (une substat)
+
+[Epic] Tiger
+12.1kDamage
+32.3kHealth
+LV6
++5.06%Health
+
+O
+
+Lv.6
+
+[Epic] Tiger
+12.1k Damage
+32.3k Health
++5.06% Health
+
+---------------------------------------------------------------------------
+---------------------------------------------------------------------------
+
+Mount 
+
+N (une substat)
+
+[Rare] Crab
+Equipped
+10.4kDamage
+83.2kHealth
++10.6%CriticalChance
+Upgrade
+Remove
+
+O
+
+Equipped
+
+LV.1
+
+[Rare] Crab
+10.4k Damage
+83.2k Health
++10.6% Critical Chance
+
+Upgrade
+
+Remove
+
+---------------------------------------------------------------------------
+
+N (deux substats)
+
+[Ultimate]MiniDragon
+LV.52
+238mDamage
+1.9bHealth
++36.9%DoubleChance
++25.8%AttackSpeed
+
+O
+
+Lv.52
+
+[Ultimate] Mini Dragon
+238m Damage
+1.9b Health
++36.9% Double Chance
++25.8% Attack Speed
+
+---------------------------------------------------------------------------
+---------------------------------------------------------------------------
+
+skills
+
+N
+
+[Ultimate]Stampede
+Equipped
+CallonaBull stampede,each
+LV.3
+dealing2.45mDamage
+0/2
+Passive:
++43.4kBaseDamage+347kBaseHealth
+Upgrade
+Remove
+
+O
+
+Equipped
+
+Lv.3
+0/2
+
+[Ultimate] Stampede
+Call on a Bull stampede, each
+dealing 2.45m Damage
+
+Passive:
++43.4k Base Damage +347k Base Health
+
+Upgrade
+
+Remove
+
+
+
+

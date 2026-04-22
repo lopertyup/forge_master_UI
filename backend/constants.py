@@ -17,6 +17,26 @@ MOUNT_FILE           = os.path.join(_DIR, "mount.txt")
 PETS_LIBRARY_FILE    = os.path.join(_DIR, "pets_library.txt")
 MOUNT_LIBRARY_FILE   = os.path.join(_DIR, "mount_library.txt")
 SKILLS_LIBRARY_FILE  = os.path.join(_DIR, "skills_library.txt")
+ZONES_FILE           = os.path.join(_DIR, "zones.json")
+WINDOW_STATE_FILE    = os.path.join(_DIR, "window.json")
+
+# ── OCR ─────────────────────────────────────────────────────
+# Default install path on Windows. If missing, ocr.py falls back
+# to `shutil.which("tesseract")` so Linux/Mac dev boxes still work.
+TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+# Default zones used if zones.json is missing or incomplete.
+# `captures` = number of successive screen grabs the user performs
+# for this zone (2 means they scroll between clicks). All bboxes
+# are initialised to zero until the user sends the real coords.
+ZONE_DEFAULTS = {
+    "profile":   {"captures": 2, "bboxes": [[0, 0, 0, 0], [0, 0, 0, 0]]},
+    "opponent":  {"captures": 2, "bboxes": [[0, 0, 0, 0], [0, 0, 0, 0]]},
+    "equipment": {"captures": 1, "bboxes": [[0, 0, 0, 0]]},
+    "pet":       {"captures": 1, "bboxes": [[0, 0, 0, 0]]},
+    "mount":     {"captures": 1, "bboxes": [[0, 0, 0, 0]]},
+    "skill":     {"captures": 1, "bboxes": [[0, 0, 0, 0]]},
+}
 
 # ── Simulation parameters ───────────────────────────────────
 TICK                    = 0.01

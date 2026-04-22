@@ -23,26 +23,27 @@ from ui.theme import (
     FONT_SUB,
     fmt_number,
 )
-from ui.widgets import build_header, confirm
+from ui.widgets import attach_scan_button, build_header, confirm
 
 
-# Stats displayed on equipment (display order)
+# Stats displayed on equipment — canonical in-game order.
+# Flat stats first, then substats in the order the game shows them.
 _STAT_ROWS = [
     ("hp_flat",        "Health (flat)",  True),
     ("damage_flat",    "Damage (flat)",  True),
-    ("health_pct",     "Health %",       False),
-    ("damage_pct",     "Damage %",       False),
-    ("melee_pct",      "Melee %",        False),
-    ("ranged_pct",     "Ranged %",       False),
     ("crit_chance",    "Crit Chance",    False),
     ("crit_damage",    "Crit Damage",    False),
+    ("block_chance",   "Block Chance",   False),
     ("health_regen",   "Health Regen",   False),
     ("lifesteal",      "Lifesteal",      False),
     ("double_chance",  "Double Chance",  False),
+    ("damage_pct",     "Damage %",       False),
+    ("melee_pct",      "Melee %",        False),
+    ("ranged_pct",     "Ranged %",       False),
     ("attack_speed",   "Attack Speed",   False),
     ("skill_damage",   "Skill Damage",   False),
     ("skill_cooldown", "Skill Cooldown", False),
-    ("block_chance",   "Block Chance",   False),
+    ("health_pct",     "Health %",       False),
 ]
 
 
@@ -85,17 +86,33 @@ class EquipmentView(ctk.CTkFrame):
             fg_color=C["bg"], text_color=C["text"],
             border_color=C["border"], border_width=1,
         )
-        self.text_box.grid(row=1, column=0, padx=12, pady=(0, 8), sticky="nsew")
+        self.text_box.grid(row=1, column=0, padx=12, pady=(0, 6), sticky="nsew")
         self.text_box.bind("<KeyRelease>", self._on_text_change)
+
+        # ── Scan button row (OCR — equipment has 2 bboxes) ──
+        self._scan_row = ctk.CTkFrame(left, fg_color="transparent")
+        self._scan_row.grid(row=2, column=0, padx=12, pady=(0, 6), sticky="ew")
 
         self._lbl_err = ctk.CTkLabel(left, text="", font=FONT_SMALL,
                                       text_color=C["lose"], wraplength=260)
-        self._lbl_err.grid(row=2, column=0, padx=12, pady=(0, 4))
+        self._lbl_err.grid(row=3, column=0, padx=12, pady=(0, 4))
 
         self._lbl_status = ctk.CTkLabel(left, text="Waiting for text…",
                                          font=FONT_SMALL, text_color=C["muted"],
                                          wraplength=260)
-        self._lbl_status.grid(row=3, column=0, padx=12, pady=(0, 12))
+        self._lbl_status.grid(row=4, column=0, padx=12, pady=(0, 12))
+
+        # Scan button — wired AFTER _lbl_status is created so it can write
+        # its progress / errors into the same status label the analyzer uses.
+        attach_scan_button(
+            parent_btn_frame=self._scan_row,
+            textbox=self.text_box,
+            status_lbl=self._lbl_status,
+            scan_key="equipment",
+            scan_fn=self.controller.scan,
+            captures_fn=self.controller.get_zone_captures,
+            on_scan_ready=self._on_scan_ready,
+        )
 
         # ── Right: old + new ──────────────────────────────────
         right = ctk.CTkFrame(body, fg_color="transparent", corner_radius=0)
@@ -137,6 +154,23 @@ class EquipmentView(ctk.CTkFrame):
         ctk.CTkLabel(self.bottom,
                      text="Simulation results will appear here.",
                      font=FONT_SMALL, text_color=C["muted"]).pack(pady=18)
+
+    # ── OCR callback ──────────────────────────────────────────
+
+    def _on_scan_ready(self) -> None:
+        """Called once the OCR finished writing both captures into the
+        textbox. Equipment auto-runs the analyzer when « NEW! » is in
+        the text — check for that and trigger the same pipeline used by
+        the KeyRelease handler."""
+        text = self.text_box.get("1.0", "end").strip()
+        if "NEW!" in text.upper():
+            if self._after_id:
+                self.after_cancel(self._after_id)
+            self._after_id = self.after(50, self._analyze)
+        else:
+            self._lbl_status.configure(
+                text="✓ OCR complete. Waiting for « NEW! » marker…",
+                text_color=C["muted"])
 
     # ── Auto-analysis (debounce 600 ms) ───────────────────────
 

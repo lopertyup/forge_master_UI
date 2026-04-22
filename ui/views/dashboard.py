@@ -18,10 +18,27 @@ from ui.theme import (
     FONT_SUB,
     FONT_TITLE,
     FONT_TINY,
+    MOUNT_ICON,
+    PET_ICONS,
     fmt_number,
+    load_mount_icon,
+    load_pet_icon,
+    load_skill_icon_by_name,
     rarity_color,
 )
-from ui.widgets import build_header, skill_icon_grid, stat_hero_card
+from ui.widgets import (
+    attach_scan_button,
+    build_header,
+    companion_slot_card,
+    skill_icon_grid,
+    stat_hero_card,
+)
+
+_PET_SLOTS = ("PET1", "PET2", "PET3")
+
+# Profile-import dialog geometry — fixed (no session persistence).
+# Tuned to sit flush against the left edge of the main window.
+_PROFILE_DIALOG_GEOMETRY = "670x641+-12+0"
 
 
 class DashboardView(ctk.CTkFrame):
@@ -99,20 +116,21 @@ class DashboardView(ctk.CTkFrame):
                      font=FONT_SUB, text_color=C["text"]).grid(
             row=0, column=0, padx=20, pady=(16, 8), sticky="w")
 
+        # Canonical in-game substat order.
         stat_rows = [
-            ("health_pct",     "Health %"),
-            ("damage_pct",     "Damage %"),
-            ("melee_pct",      "Melee %"),
-            ("ranged_pct",     "Ranged %"),
             ("crit_chance",    "Crit Chance"),
             ("crit_damage",    "Crit Damage"),
+            ("block_chance",   "Block Chance"),
             ("health_regen",   "Health Regen"),
             ("lifesteal",      "Lifesteal"),
             ("double_chance",  "Double Chance"),
+            ("damage_pct",     "Damage %"),
+            ("melee_pct",      "Melee %"),
+            ("ranged_pct",     "Ranged %"),
             ("attack_speed",   "Attack Speed"),
             ("skill_damage",   "Skill Damage"),
             ("skill_cooldown", "Skill Cooldown"),
-            ("block_chance",   "Block Chance"),
+            ("health_pct",     "Health %"),
         ]
 
         for i, (key, label) in enumerate(stat_rows):
@@ -155,38 +173,171 @@ class DashboardView(ctk.CTkFrame):
                          font=FONT_BODY, text_color=C["disabled"]).grid(
                 row=1, column=0, columnspan=3, padx=20, pady=16)
         else:
-            for idx, (code, data) in enumerate(skills):
-                self._skill_card(sk_frame, code, data, row=1, col=idx)
+            # Pad to 3 slots so an empty S2/S3 still shows a placeholder card.
+            padded = list(skills) + [None] * max(0, 3 - len(skills))
+            for col, entry in enumerate(padded[:3]):
+                card = self._skill_card(sk_frame, entry)
+                card.grid(row=1, column=col, padx=10, pady=(0, 12),
+                           sticky="nsew")
 
         ctk.CTkFrame(sk_frame, fg_color="transparent", height=8).grid(
             row=2, column=0)
 
+        # ── Pets (3 slots) ──────────────────────────────────
+        pets_outer = ctk.CTkFrame(scroll, fg_color=C["card"], corner_radius=12)
+        pets_outer.grid(row=4, column=0, columnspan=2, padx=16, pady=(0, 16),
+                         sticky="ew")
+        pets_outer.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(pets_outer, text="Pets",
+                     font=FONT_SUB, text_color=C["text"]).grid(
+            row=0, column=0, padx=20, pady=(16, 8), sticky="w")
+
+        pets_row = ctk.CTkFrame(pets_outer, fg_color="transparent")
+        pets_row.grid(row=1, column=0, padx=10, pady=(0, 12), sticky="ew")
+        pets_row.grid_columnconfigure((0, 1, 2), weight=1)
+
+        pets = self.controller.get_pets() or {}
+        for col, slot in enumerate(_PET_SLOTS):
+            pet   = pets.get(slot, {}) or {}
+            name  = pet.get("__name__")
+            rar   = pet.get("__rarity__")
+            icon  = load_pet_icon(name, size=44) if name else None
+            card  = companion_slot_card(
+                pets_row,
+                slot_label=f"{PET_ICONS.get(slot, '🐾')}  {slot}",
+                name=name,
+                rarity=rar,
+                stats=pet,
+                icon_image=icon,
+                fallback_emoji="🐾",
+                empty_text="(empty slot)",
+            )
+            card.grid(row=0, column=col, padx=6, pady=0, sticky="nsew")
+
+        # ── Mount (single slot) ─────────────────────────────
+        mount_outer = ctk.CTkFrame(scroll, fg_color=C["card"], corner_radius=12)
+        mount_outer.grid(row=5, column=0, columnspan=2, padx=16, pady=(0, 16),
+                          sticky="ew")
+        mount_outer.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(mount_outer, text="Mount",
+                     font=FONT_SUB, text_color=C["text"]).grid(
+            row=0, column=0, padx=20, pady=(16, 8), sticky="w")
+
+        mount = self.controller.get_mount() or {}
+        m_name = mount.get("__name__")
+        m_rar  = mount.get("__rarity__")
+        m_icon = load_mount_icon(m_name, size=48) if m_name else None
+        mount_card = companion_slot_card(
+            mount_outer,
+            slot_label=f"{MOUNT_ICON}  Current mount",
+            name=m_name,
+            rarity=m_rar,
+            stats=mount,
+            icon_image=m_icon,
+            fallback_emoji=MOUNT_ICON,
+            empty_text="(no mount registered)",
+        )
+        mount_card.grid(row=1, column=0, padx=16, pady=(0, 12), sticky="ew")
+
     # ── Sub-widgets ─────────────────────────────────────────
 
-    def _skill_card(self, parent, code: str, data: Dict,
-                    row: int, col: int) -> None:
-        rarity  = str(data.get("rarity", "common")).lower()
-        color   = rarity_color(rarity)
-        sk_type = data.get("type", "damage")
+    def _skill_card(self, parent, entry) -> ctk.CTkFrame:
+        """Rich card for an equipped skill — icon, name, rarity/level badges,
+        then damage/hits/cd stats (or buff stats) + passive bonuses.
 
+        ``entry`` is the ``(code, data)`` tuple returned by
+        ``controller.get_active_skills()``, or ``None`` for an empty slot.
+        """
         card = ctk.CTkFrame(parent, fg_color=C["card_alt"], corner_radius=10)
-        card.grid(row=row, column=col, padx=10, pady=(0, 12), sticky="ew")
 
-        ctk.CTkLabel(card, text=rarity.upper(), font=FONT_TINY,
-                     text_color=color, fg_color=C["bg"],
-                     corner_radius=4, width=60, height=18).pack(
-            anchor="ne", padx=10, pady=(10, 0))
+        if entry is None:
+            ctk.CTkLabel(card, text="— empty slot —",
+                         font=FONT_BODY, text_color=C["muted"]).pack(
+                padx=16, pady=28)
+            return card
 
-        ctk.CTkLabel(card, text=f"[{code.upper()}]  {data.get('name', '?')}",
-                     font=FONT_SUB, text_color=C["text"]).pack(
-            padx=14, pady=(0, 2))
+        code, data = entry
+        name    = data.get("name") or data.get("__name__") or code.upper()
+        rarity  = str(data.get("rarity") or data.get("__rarity__", "common")).lower()
+        color   = rarity_color(rarity)
+        sk_type = str(data.get("type", "damage"))
+        type_ic = "⚔" if sk_type == "damage" else "🛡"
 
-        icon = "⚡" if sk_type == "damage" else "🛡"
+        # Identity band: icon + name + rarity/level badges
+        head = ctk.CTkFrame(card, fg_color="transparent")
+        head.pack(fill="x", padx=12, pady=(12, 6))
+
+        icon_img = load_skill_icon_by_name(name, size=44)
         ctk.CTkLabel(
-            card,
-            text=f"{icon} {sk_type.title()}  |  CD: {data.get('cooldown', 0):.1f}s  |  x{int(data.get('hits', 1))} hits",
-            font=FONT_SMALL, text_color=C["muted"],
-        ).pack(padx=14, pady=(0, 12))
+            head,
+            image=icon_img if icon_img else None,
+            text="" if icon_img else type_ic,
+            font=("Segoe UI", 24),
+            text_color=color,
+            width=48, height=48,
+        ).pack(side="left", padx=(2, 8))
+
+        info = ctk.CTkFrame(head, fg_color="transparent")
+        info.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(info, text=name, font=FONT_SUB,
+                     text_color=C["text"], anchor="w").pack(anchor="w")
+
+        meta_row = ctk.CTkFrame(info, fg_color="transparent")
+        meta_row.pack(anchor="w", fill="x")
+        ctk.CTkLabel(meta_row, text=rarity.upper(), font=FONT_TINY,
+                     text_color=color, anchor="w").pack(side="left")
+        ctk.CTkLabel(meta_row, text=f"[{code.upper()}]", font=FONT_TINY,
+                     text_color=C["muted"], anchor="w").pack(
+            side="left", padx=(8, 0))
+        lvl = data.get("__level__")
+        if lvl:
+            ctk.CTkLabel(meta_row, text=f"Lv.{int(lvl)}", font=FONT_TINY,
+                         text_color=C["accent"], anchor="w").pack(
+                side="left", padx=(8, 0))
+
+        # Stats block
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=10, pady=(0, 12))
+
+        rows = list(self._skill_stat_rows(data))
+        pd   = float(data.get("passive_damage", 0) or 0)
+        ph   = float(data.get("passive_hp",     0) or 0)
+        if pd: rows.append(("⚔  Passive Dmg", fmt_number(pd)))
+        if ph: rows.append(("❤  Passive HP",  fmt_number(ph)))
+
+        for i, (lbl, val) in enumerate(rows):
+            bg  = C["card"] if i % 2 == 0 else C["card_alt"]
+            row = ctk.CTkFrame(inner, fg_color=bg, corner_radius=4)
+            row.pack(fill="x", pady=1)
+            row.grid_columnconfigure(1, weight=1)
+            ctk.CTkLabel(row, text=lbl, font=FONT_SMALL,
+                         text_color=C["muted"], anchor="w").grid(
+                row=0, column=0, padx=10, pady=4, sticky="w")
+            ctk.CTkLabel(row, text=val, font=FONT_MONO,
+                         text_color=C["text"], anchor="e").grid(
+                row=0, column=1, padx=10, pady=4, sticky="e")
+        return card
+
+    @staticmethod
+    def _skill_stat_rows(data: Dict):
+        """Yield (label, value) pairs for the active part of a skill."""
+        sk_type = str(data.get("type", "damage"))
+        if sk_type == "damage":
+            dmg  = float(data.get("damage", 0) or 0)
+            hits = int(data.get("hits", 1) or 1)
+            cd   = float(data.get("cooldown", 0) or 0)
+            if dmg:  yield ("⚔  Damage / hit", fmt_number(dmg))
+            if hits: yield ("🔢 Hits",          str(hits))
+            if cd:   yield ("⏱  Cooldown",      f"{cd:g}s")
+        else:
+            dur = float(data.get("buff_duration", 0) or 0)
+            atk = float(data.get("buff_atk",      0) or 0)
+            hp  = float(data.get("buff_hp",       0) or 0)
+            cd  = float(data.get("cooldown",      0) or 0)
+            if dur: yield ("⏳ Buff duration", f"{dur:g}s")
+            if atk: yield ("⚔  Buff ATK",     fmt_number(atk))
+            if hp:  yield ("❤  Buff HP",      fmt_number(hp))
+            if cd:  yield ("⏱  Cooldown",     f"{cd:g}s")
 
     def _empty_state(self, parent: ctk.CTkBaseClass) -> None:
         ctk.CTkLabel(
@@ -210,21 +361,57 @@ class ImportDialog(ctk.CTkToplevel):
         self.controller = controller
         self.app        = app
         self.title("Update profile")
-        self.resizable(False, False)
         self.configure(fg_color=C["surface"])
-        self.grab_set()
+        self.resizable(False, False)
+
+        # Apply geometry FIRST + lock propagation so the window can't
+        # auto-resize itself to fit its (potentially tall) contents.
+        self.geometry(_PROFILE_DIALOG_GEOMETRY)
+        self.grid_propagate(False)
+        self.pack_propagate(False)
+
         self.transient(parent)
+
         self._build()
-        # After all widgets are placed, measure the natural height and lock it.
-        # This eliminates blank space below the skills grid.
-        self.update_idletasks()
-        self.geometry(f"660x{self.winfo_reqheight()}")
+
+        # Re-assert the geometry after children are placed, in case
+        # CustomTkinter scheduled an autosize on the idle queue.
+        self.after(0, lambda: self.geometry(_PROFILE_DIALOG_GEOMETRY))
+
+        self.grab_set()
 
     def _build(self) -> None:
-        # Plain frame — no CTkScrollableFrame — so the window height
-        # matches content with zero leftover space.
-        content = ctk.CTkFrame(self, fg_color=C["surface"], corner_radius=0)
-        content.pack(side="top", fill="x")
+        # Grid layout: row 0 = scrollable content (expands), row 1 = button
+        # bar (fixed 64 px). This guarantees the Save/Cancel row stays
+        # visible even when the content overflows.
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=0, minsize=64)
+        self.grid_columnconfigure(0, weight=1)
+
+        # ── Scrollable body (row 0) ───────────────────────────
+        content = ctk.CTkScrollableFrame(
+            self, fg_color=C["surface"], corner_radius=0,
+        )
+        content.grid(row=0, column=0, sticky="nsew")
+
+        # ── Button bar (row 1) ────────────────────────────────
+        btn_bar = ctk.CTkFrame(self, fg_color=C["card"], corner_radius=0,
+                                height=64)
+        btn_bar.grid(row=1, column=0, sticky="ew")
+        btn_bar.grid_propagate(False)
+
+        self._lbl_btn_status = ctk.CTkLabel(
+            btn_bar, text="", font=FONT_SMALL, text_color=C["lose"])
+        self._lbl_btn_status.pack(side="left", padx=24)
+
+        ctk.CTkButton(btn_bar, text="Cancel", fg_color=C["border"],
+                      hover_color=C["border_hl"], font=FONT_BODY, width=120,
+                      command=self.destroy).pack(side="right", padx=(8, 24),
+                                                  pady=14)
+        ctk.CTkButton(btn_bar, text="✓  Save",
+                      fg_color=C["accent"], hover_color=C["accent_hv"],
+                      font=FONT_BODY, width=160,
+                      command=self._save).pack(side="right", pady=14)
 
         ctk.CTkLabel(content, text="Paste the profile text",
                      font=("Segoe UI", 16, "bold"),
@@ -241,7 +428,22 @@ class ImportDialog(ctk.CTkToplevel):
             fg_color=C["bg"], text_color=C["text"],
             border_color=C["border"], border_width=1,
         )
-        self.text_box.pack(padx=24, pady=(0, 12), fill="x")
+        self.text_box.pack(padx=24, pady=(0, 4), fill="x")
+
+        # ── Scan row (OCR button + status) ─────────────────
+        scan_row = ctk.CTkFrame(content, fg_color="transparent")
+        scan_row.pack(padx=24, pady=(0, 10), fill="x")
+        self._lbl_scan_status = ctk.CTkLabel(
+            scan_row, text="", font=FONT_SMALL, text_color=C["muted"])
+        self._lbl_scan_status.pack(side="right", padx=(8, 0))
+        attach_scan_button(
+            parent_btn_frame=scan_row,
+            textbox=self.text_box,
+            status_lbl=self._lbl_scan_status,
+            scan_key="profile",
+            scan_fn=self.controller.scan,
+            captures_fn=self.controller.get_zone_captures,
+        )
 
         # Attack type
         type_frame = ctk.CTkFrame(content, fg_color=C["card"], corner_radius=8)
@@ -278,26 +480,7 @@ class ImportDialog(ctk.CTkToplevel):
 
         self._skill_limit_label = ctk.CTkLabel(
             content, text="", font=FONT_SMALL, text_color=C["lose"])
-        self._skill_limit_label.pack(padx=24, pady=(0, 4))
-
-        # ── Button bar — packed after content, always visible ──
-        btn_bar = ctk.CTkFrame(self, fg_color=C["card"], corner_radius=0,
-                                height=64)
-        btn_bar.pack(side="top", fill="x")
-        btn_bar.pack_propagate(False)
-
-        self._lbl_btn_status = ctk.CTkLabel(
-            btn_bar, text="", font=FONT_SMALL, text_color=C["lose"])
-        self._lbl_btn_status.pack(side="left", padx=24)
-
-        ctk.CTkButton(btn_bar, text="Cancel", fg_color=C["border"],
-                      hover_color=C["border_hl"], font=FONT_BODY, width=120,
-                      command=self.destroy).pack(side="right", padx=(8, 24),
-                                                  pady=14)
-        ctk.CTkButton(btn_bar, text="✓  Save",
-                      fg_color=C["accent"], hover_color=C["accent_hv"],
-                      font=FONT_BODY, width=160,
-                      command=self._save).pack(side="right", pady=14)
+        self._skill_limit_label.pack(padx=24, pady=(0, 16))
 
     def _toggle_skill(self, code: str) -> None:
         var      = self._skill_vars[code]

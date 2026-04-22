@@ -3,18 +3,18 @@
 # ============================================================
 
 [S1]
-__name__       = Stampede
-__rarity__     = ultimate
-__level__      = 3
-type           = damage
-damage         = 692500.0
-hits           = 4.0
-cooldown       = 20.0
-buff_duration  = 0.0
-buff_atk       = 0.0
-buff_hp        = 0.0
-passive_damage = 43400.0
-passive_hp     = 347000.0
+__name__       = Morale
+__rarity__     = legendary
+__level__      = 9
+type           = buff
+damage         = 9.0
+hits           = 1.0
+cooldown       = 8.0
+buff_duration  = 10.0
+buff_atk       = 128000.0
+buff_hp        = 1024000.0
+passive_damage = 5760.0
+passive_hp     = 46100.0
 
 [S2]
 __name__       = Worm

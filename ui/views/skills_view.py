@@ -82,6 +82,10 @@ class SkillsView(ctk.CTkFrame):
             primary_cmd=self._test_skill,
             secondary_label="✏  Directly edit a slot",
             secondary_cmd=self._edit_direct,
+            scan_key="skill",
+            scan_fn=self.controller.scan,
+            captures_fn=self.controller.get_zone_captures,
+            on_scan_ready=self._test_skill,
         )
         card.grid(row=1, column=0, padx=16, pady=(0, 8), sticky="ew")
 

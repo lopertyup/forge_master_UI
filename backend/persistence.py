@@ -5,6 +5,7 @@
 ============================================================
 """
 
+import json
 import logging
 import os
 from typing import Dict, List, Optional, Tuple
@@ -20,6 +21,9 @@ from .constants import (
     SKILLS_FILE,
     SKILLS_LIBRARY_FILE,
     STATS_KEYS,
+    WINDOW_STATE_FILE,
+    ZONE_DEFAULTS,
+    ZONES_FILE,
 )
 
 log = logging.getLogger(__name__)
@@ -484,3 +488,115 @@ def save_skills_library(library: Dict[str, Dict]) -> None:
             for k in SKILL_NUMERIC_KEYS:
                 f.write(f"{k:14s} = {entry.get(k, 0.0)}\n")
             f.write("\n")
+
+
+# ════════════════════════════════════════════════════════════
+#  OCR ZONES (zones.json)
+# ════════════════════════════════════════════════════════════
+#
+#  Each entry:   { "captures": int, "bboxes": [[x1,y1,x2,y2], ...] }
+#  - captures = nb of successive screen grabs (2 = scroll between)
+#  - bboxes   = one bbox per capture, screen-absolute coordinates
+#
+#  `load_zones()` tolerates a missing / malformed file by falling
+#  back to ZONE_DEFAULTS. Any key missing from the JSON is
+#  backfilled from the defaults so new zones work without having
+#  to regenerate the file by hand.
+# ════════════════════════════════════════════════════════════
+
+def _zone_defaults() -> Dict[str, Dict]:
+    """Deep-copy of ZONE_DEFAULTS so callers can mutate safely."""
+    return {
+        k: {"captures": int(v["captures"]),
+            "bboxes":   [list(b) for b in v["bboxes"]]}
+        for k, v in ZONE_DEFAULTS.items()
+    }
+
+
+def load_zones() -> Dict[str, Dict]:
+    """Load OCR zones from zones.json, filling in missing keys from defaults."""
+    defaults = _zone_defaults()
+    if not os.path.isfile(ZONES_FILE):
+        return defaults
+    try:
+        with open(ZONES_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning("zones.json unreadable (%s) — using defaults", e)
+        return defaults
+
+    if not isinstance(data, dict):
+        log.warning("zones.json is not a dict — using defaults")
+        return defaults
+
+    # Sanitise each entry, backfilling from defaults where needed.
+    for key, default_entry in defaults.items():
+        entry = data.get(key)
+        if not isinstance(entry, dict):
+            data[key] = default_entry
+            continue
+        captures = int(entry.get("captures", default_entry["captures"]))
+        raw_boxes = entry.get("bboxes") or default_entry["bboxes"]
+        bboxes: List[List[int]] = []
+        for b in raw_boxes:
+            try:
+                bboxes.append([int(c) for c in b])
+            except (TypeError, ValueError):
+                bboxes.append([0, 0, 0, 0])
+        # Make sure we have at least `captures` boxes.
+        while len(bboxes) < captures:
+            bboxes.append([0, 0, 0, 0])
+        data[key] = {"captures": captures, "bboxes": bboxes}
+    return data
+
+
+def save_zones(zones: Dict[str, Dict]) -> None:
+    """Persist the full zones dict back to zones.json."""
+    with open(ZONES_FILE, "w", encoding="utf-8") as f:
+        json.dump(zones, f, indent=2)
+        f.write("\n")
+
+
+# ════════════════════════════════════════════════════════════
+#  WINDOW STATE (window.json) — remember geometry between sessions
+# ════════════════════════════════════════════════════════════
+#
+#  A simple {window_id: geometry_string} dict. The geometry string is
+#  the native Tk format used by `wm geometry`: "WIDTHxHEIGHT+X+Y".
+#
+#  Keys currently used:
+#     - "main"           → ForgeMasterApp main window
+#     - "profile_dialog" → Dashboard "Update Profile" dialog
+# ════════════════════════════════════════════════════════════
+
+def load_window_state() -> Dict[str, str]:
+    """Load saved window geometries. Returns {} on missing/invalid file."""
+    if not os.path.isfile(WINDOW_STATE_FILE):
+        return {}
+    try:
+        with open(WINDOW_STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning("window.json unreadable (%s) — ignoring", e)
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    # Keep only string values — malformed entries are discarded.
+    return {k: v for k, v in data.items() if isinstance(v, str)}
+
+
+def save_window_state(state: Dict[str, str]) -> None:
+    """Persist the window geometry dict to window.json."""
+    try:
+        with open(WINDOW_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+            f.write("\n")
+    except OSError as e:
+        log.warning("Failed to save window.json: %s", e)
+
+
+def remember_window(window_id: str, geometry: str) -> None:
+    """Convenience helper: update a single entry and flush to disk."""
+    state = load_window_state()
+    state[window_id] = geometry
+    save_window_state(state)

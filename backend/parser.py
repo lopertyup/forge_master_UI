@@ -149,11 +149,11 @@ def parse_companion(text: str) -> Dict[str, float]:
     clean = re.sub(r'\n(?![+\-\[\d])', ' ', text)
     c = _empty_companion()
 
-    m = re.search(r'([\d.]+[km]?)\s*Health(?!\s*Regen)(?!\s*%)', clean, re.IGNORECASE)
+    m = re.search(r'([\d.]+[kmb]?)\s*Health(?!\s*Regen)(?!\s*%)', clean, re.IGNORECASE)
     if m:
         c["hp_flat"] = parse_flat(m.group(1))
 
-    m = re.search(r'([\d.]+[km]?)\s*Damage(?!\s*%)', clean, re.IGNORECASE)
+    m = re.search(r'([\d.]+[kmb]?)\s*Damage(?!\s*%)', clean, re.IGNORECASE)
     if m:
         c["damage_flat"] = parse_flat(m.group(1))
 

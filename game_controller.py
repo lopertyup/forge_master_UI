@@ -43,6 +43,7 @@ from backend.persistence import (
     load_skill_slots,
     load_skills,
     load_skills_library,
+    load_zones,
     save_mount,
     save_mount_library,
     save_pets,
@@ -51,6 +52,7 @@ from backend.persistence import (
     save_skills,
     save_skills_library,
 )
+from backend import zone_store
 from backend.simulation import simulate_batch
 from backend.stats import (
     apply_change,
@@ -78,6 +80,7 @@ class GameController:
         self._pets_library:   Dict[str, Dict] = {}
         self._mount_library:  Dict[str, Dict] = {}
         self._skills_library: Dict[str, Dict] = {}
+        self._zones:          Dict[str, Dict] = {}   # OCR capture zones
         self._tk_root                         = None  # for thread-safe after()
         self.reload()
 
@@ -86,7 +89,7 @@ class GameController:
         self._tk_root = root
 
     def reload(self) -> None:
-        """Reload profile + pets + mount + skills + libraries from disk."""
+        """Reload profile + pets + mount + skills + libraries + zones from disk."""
         self._profile, self._skills = load_profile()
         self._skill_slots           = load_skill_slots()
         self._pets                  = load_pets()
@@ -94,12 +97,13 @@ class GameController:
         self._pets_library          = load_pets_library()
         self._mount_library         = load_mount_library()
         self._skills_library        = load_skills_library()
+        self._zones                 = load_zones()
         log.info("GameController.reload: profile=%s, pets=%d, skills=%d/3, "
-                 "lib_pets=%d, lib_mount=%d, lib_skills=%d",
+                 "lib_pets=%d, lib_mount=%d, lib_skills=%d, zones=%d",
                  "OK" if self._profile else "-",
                  len(self._pets), len(self._skills),
                  len(self._pets_library), len(self._mount_library),
-                 len(self._skills_library))
+                 len(self._skills_library), len(self._zones))
 
     # ── Profile ─────────────────────────────────────────────
 
@@ -166,6 +170,101 @@ class GameController:
             self._tk_root.after(0, lambda: callback(*args))
         else:
             callback(*args)
+
+    # ── OCR scan (screen capture + Tesseract) ───────────────
+    #
+    #  Zones live in zones.json (one entry per semantic target:
+    #  profile, opponent, equipment, pet, mount, skill). A zone
+    #  holds N bboxes — `captures` controls how many successive
+    #  grabs the user performs (e.g. 2 if they must scroll).
+    #
+    #  The view passes a callback; we run the OCR on a daemon
+    #  thread so the UI doesn't freeze, then dispatch back.
+    #
+    #  Returned status:
+    #    "ok"                 — non-empty text captured
+    #    "empty"              — OCR ran but returned no text
+    #    "zone_not_configured" — all bboxes are zero, or unknown key
+    #    "ocr_unavailable"     — Pillow/pytesseract/binary missing
+
+    def get_zone_captures(self, zone_key: str) -> int:
+        """Number of successive clicks the user has to perform for this zone."""
+        z = self._zones.get(zone_key) or {}
+        return max(1, int(z.get("captures", 1)))
+
+    def get_zones(self) -> Dict[str, Dict]:
+        """Full zones dict (a shallow copy) — used by the Zones view."""
+        return {k: {"captures": v.get("captures", 1),
+                    "bboxes":   [list(b) for b in (v.get("bboxes") or [])]}
+                for k, v in self._zones.items()}
+
+    def get_zone(self, zone_key: str) -> Dict:
+        """Single zone entry (or defaults if unknown)."""
+        return zone_store.get_zone(zone_key, zones=self._zones)
+
+    def set_zone_bboxes(self, zone_key: str,
+                        bboxes) -> None:
+        """Update the bboxes for `zone_key`, save, and refresh the cache."""
+        self._zones = zone_store.set_zone_bboxes(
+            zone_key, bboxes, zones=self._zones)
+
+    def reset_zone(self, zone_key: str) -> None:
+        """Zero out the bboxes for `zone_key`."""
+        self._zones = zone_store.reset_zone(zone_key, zones=self._zones)
+
+    def is_zone_configured(self, zone_key: str) -> bool:
+        """True iff every bbox in this zone has non-zero area."""
+        return zone_store.is_zone_configured(zone_key, zones=self._zones)
+
+    def scan(
+        self,
+        zone_key: str,
+        callback: Callable[[str, str], None],
+        step:     Optional[int] = None,
+    ) -> None:
+        """Run OCR on zone_key (all bboxes, or just step=n) and dispatch
+        (text, status) back on the Tk thread."""
+        z = self._zones.get(zone_key)
+        if z is None:
+            self._dispatch(callback, "", "zone_not_configured")
+            return
+
+        bboxes = [tuple(b) for b in (z.get("bboxes") or [])]
+        if step is not None:
+            if step < 0 or step >= len(bboxes):
+                self._dispatch(callback, "", "zone_not_configured")
+                return
+            bboxes = [bboxes[step]]
+
+        # "All zero" → zone not yet calibrated.
+        if not bboxes or all(all(c == 0 for c in b) for b in bboxes):
+            self._dispatch(callback, "", "zone_not_configured")
+            return
+
+        def _run() -> None:
+            from backend import ocr  # lazy import — Pillow only loaded on first scan
+            from backend.fix_ocr import fix_ocr  # normalize OCR artifacts
+            if not ocr.is_available():
+                self._dispatch(callback, "", "ocr_unavailable")
+                return
+            try:
+                raw_text = ocr.run_ocr(bboxes)
+            except Exception:
+                log.exception("scan(%r, step=%r) raised", zone_key, step)
+                self._dispatch(callback, "", "ocr_unavailable")
+                return
+            # Normalize the raw OCR output BEFORE handing it to the UI:
+            # fixes brackets, Lv. prefixes, spacing, stat names, and drops
+            # UI artifacts (player-name blobs, timers, [-FR-] tags, etc.).
+            # `zone_key` is forwarded as context so profile/opponent get
+            # extra cleanup (dedup of the two captures, drop of standalone
+            # "Lv. XX" badges, drop of corrupt stats, canonical ordering).
+            # The transform is idempotent so pasting clean text later stays safe.
+            text = fix_ocr(raw_text, context=zone_key)
+            status = "ok" if text.strip() else "empty"
+            self._dispatch(callback, text, status)
+
+        threading.Thread(target=_run, daemon=True).start()
 
     # ── Main simulation (opponent = pasted build) ───────────
 
@@ -724,23 +823,27 @@ class GameController:
 
     @staticmethod
     def stats_display_list() -> List[Tuple[str, str, bool]]:
-        """List (key, label, is_flat) for the detailed display of a profile."""
+        """List (key, label, is_flat) for the detailed display of a profile.
+
+        Order: flat stats first (totals then bases), then substats in the
+        canonical in-game order (crit / block / regen / ... / health).
+        """
         return [
             ("hp_total",       "❤  Total HP",          True),
             ("attack_total",   "⚔  Total ATK",          True),
             ("hp_base",        "   Base HP",            True),
             ("attack_base",    "   Base ATK",           True),
-            ("health_pct",     "❤  Health %",           False),
-            ("damage_pct",     "⚔  Damage %",           False),
-            ("melee_pct",      "⚔  Melee %",            False),
-            ("ranged_pct",     "⚔  Ranged %",           False),
             ("crit_chance",    "🎯 Crit Chance",         False),
             ("crit_damage",    "💥 Crit Damage",         False),
+            ("block_chance",   "🛡  Block Chance",       False),
             ("health_regen",   "♻  Health Regen",       False),
             ("lifesteal",      "🩸 Lifesteal",           False),
             ("double_chance",  "✌  Double Chance",      False),
+            ("damage_pct",     "⚔  Damage %",           False),
+            ("melee_pct",      "⚔  Melee %",            False),
+            ("ranged_pct",     "⚔  Ranged %",           False),
             ("attack_speed",   "⚡ Attack Speed",        False),
             ("skill_damage",   "✨ Skill Damage",        False),
             ("skill_cooldown", "⏱  Skill Cooldown",     False),
-            ("block_chance",   "🛡  Block Chance",       False),
+            ("health_pct",     "❤  Health %",           False),
         ]

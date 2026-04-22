@@ -75,29 +75,82 @@ FONT_MONO_S = ("Consolas", 11)
 # ── Stat labels (shared everywhere) ──────────────────────────
 
 STAT_LABELS = {
+    # Flat stats (shown first on profile / equipment / pet / mount cards)
     "hp_flat":         "❤  HP",
     "damage_flat":     "⚔  Damage",
     "hp_total":        "❤  Total HP",
     "attack_total":    "⚔  Total ATK",
     "hp_base":         "❤  Base HP",
     "attack_base":     "⚔  Base ATK",
-    "health_pct":      "❤  Health %",
-    "damage_pct":      "⚔  Damage %",
-    "melee_pct":       "⚔  Melee %",
-    "ranged_pct":      "⚔  Ranged %",
+    # Substats — canonical in-game order
     "crit_chance":     "🎯 Crit Chance",
     "crit_damage":     "💥 Crit Damage",
+    "block_chance":    "🛡  Block Chance",
     "health_regen":    "♻  Health Regen",
     "lifesteal":       "🩸 Lifesteal",
     "double_chance":   "✌  Double Chance",
+    "damage_pct":      "⚔  Damage %",
+    "melee_pct":       "⚔  Melee %",
+    "ranged_pct":      "⚔  Ranged %",
     "attack_speed":    "⚡ Attack Speed",
     "skill_damage":    "✨ Skill Damage",
     "skill_cooldown":  "⏱  Skill CD",
-    "block_chance":    "🛡  Block Chance",
+    "health_pct":      "❤  Health %",
 }
 
 FLAT_STAT_KEYS = ("hp_flat", "damage_flat", "hp_total", "attack_total",
                   "hp_base", "attack_base")
+
+
+# ── Canonical stat display order (used everywhere we render stats) ──
+# Flat stats first (in their natural order), then substats in the
+# exact order the game uses in its stat panel. Any key not listed
+# here sorts after, alphabetically — a safety net for new stats.
+STAT_DISPLAY_ORDER = (
+    # Flat / totals
+    "hp_flat", "damage_flat",
+    "hp_total", "attack_total",
+    "hp_base",  "attack_base",
+    # Substats — canonical in-game order
+    "crit_chance",
+    "crit_damage",
+    "block_chance",
+    "health_regen",
+    "lifesteal",
+    "double_chance",
+    "damage_pct",
+    "melee_pct",
+    "ranged_pct",
+    "attack_speed",
+    "skill_damage",
+    "skill_cooldown",
+    "health_pct",
+)
+
+_STAT_ORDER_INDEX = {k: i for i, k in enumerate(STAT_DISPLAY_ORDER)}
+
+
+def stat_sort_key(key: str) -> tuple:
+    """Sort key for stat dicts → canonical in-game display order.
+
+    Unknown keys go last, alphabetically, so a typo never hides a stat.
+    """
+    idx = _STAT_ORDER_INDEX.get(key)
+    if idx is None:
+        return (len(STAT_DISPLAY_ORDER), str(key))
+    return (idx, str(key))
+
+
+def sorted_stats(stats):
+    """Yield ``(key, value)`` from a stat dict in canonical order.
+
+    Keeps identity keys (leading ``__``) out. Doesn't filter zero values
+    — caller decides whether to skip those.
+    """
+    for k, v in sorted(stats.items(), key=lambda kv: stat_sort_key(kv[0])):
+        if isinstance(k, str) and k.startswith("__"):
+            continue
+        yield k, v
 
 
 # ── Rarities (display order) ─────────────────────────────────
