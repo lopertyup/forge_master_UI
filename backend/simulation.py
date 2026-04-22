@@ -1,12 +1,27 @@
 """
 ============================================================
-  FORGE MASTER — Combat simulation engine
-  Deterministic 1v1 tick-based combat with skills, buffs,
-  crits, lifesteal, block, double attack, etc.
+  FORGE MASTER — PvP combat simulation engine (simplified)
 
-  IMPORTANT: max_duration is a parameter of simulate() — no
-  more monkey-patching a global. This lets multiple threads
-  simulate in parallel with different timeouts.
+  Design rules:
+    * HP pool = hp_total × PVP_HP_MULTIPLIER, same on BOTH sides.
+      (Companion / skill / equipment contributions are already
+       folded into hp_total by stats.apply_*.)
+    * One swing takes swing_time(stats) seconds; doubled on a
+      double-hit swing. stats.py owns the per-hit time; simulation
+      multiplies by 2 when the swing is a double.
+    * Double-hit is decided at swing START; both hits (or the
+      single hit) are released at swing END.
+    * Block cancels a basic attack entirely (no damage, no
+      lifesteal). Lifesteal applies only on basic attacks.
+    * Crit multiplies the basic-attack damage by crit_multi.
+    * Skills cycle cooldown → cast; they use the chantier (b)
+      data (damage per hit / hits / cooldown). Buffs are
+      detected via data["type"] == "buff".
+    * Regen amount/sec comes from stats.pvp_regen_per_second
+      (based on PRE-PvP hp_total), snapshot once per simulated
+      second, applied per tick while hp < hp_max.
+    * A fighter always targets the OTHER fighter.
+    * On timeout, higher HP% wins (|gap| < epsilon → DRAW).
 ============================================================
 """
 
@@ -14,176 +29,271 @@ import random
 from typing import Dict, List, Optional, Tuple
 
 from .constants import (
-    BASE_SPEED,
     DEFAULT_MAX_DURATION,
     N_SIMULATIONS,
-    RANGED_LEAD,
+    PVP_RESOLUTION_EPSILON,
     TICK,
+)
+from .stats import (
+    crit_multi,
+    pvp_hp_total,
+    pvp_regen_per_second,
+    swing_time,
 )
 
 
+# ════════════════════════════════════════════════════════════
+#  SKILL INSTANCE
+# ════════════════════════════════════════════════════════════
+
 class SkillInstance:
-    INITIAL_DELAY = 3.8
+    """
+    One equipped skill, cycling cooldown → cast → hits.
+    Only the ACTIVE part is used here — passives (passive_damage /
+    passive_hp) are already folded into the profile's attack_base
+    and hp_base by stats.apply_skill.
+    """
 
     def __init__(self, data: Dict, skill_damage_pct: float, skill_cooldown_pct: float):
-        self.data          = data
-        self.name          = data["name"]
-        self.skill_type    = data["type"]
-        self.hits          = int(data.get("hits", 1))
-        self.cooldown_base = float(data.get("cooldown", 10.0))
-        self.buff_dur      = float(data.get("buff_duration", 0.0))
-        self.buff_atk      = float(data.get("buff_atk", data.get("buff_atq", 0.0)))
-        self.buff_hp       = float(data.get("buff_hp", 0.0))
+        self.data       = data
+        self.name       = str(data.get("__name__") or data.get("name") or "")
+        self.skill_type = str(data.get("type", "damage")).lower()
+        self.is_buff    = (self.skill_type == "buff")
+
+        hits_raw = data.get("hits", 1)
+        self.hits = max(1, int(float(hits_raw or 1)))
+
+        cooldown_pct = skill_cooldown_pct / 100.0
+        self.cooldown = max(0.1, float(data.get("cooldown", 10.0)) * (1 + cooldown_pct))
 
         sd = skill_damage_pct / 100.0
-        sc = skill_cooldown_pct / 100.0
-        dmg_base          = float(data.get("damage", 0.0))
-        self.dmg_per_hit  = dmg_base * (1 + sd)
-        self.cooldown     = max(0.1, self.cooldown_base * (1 + sc))
+        self.dmg_per_hit = float(data.get("damage", 0.0)) * (1 + sd)
 
-        self.timer          = -self.INITIAL_DELAY
-        self.hit_interval   = self.cooldown / self.hits if self.hits > 1 else 0.0
-        self.hit_timer      = 0.0
-        self.hits_remaining = 0
-        self.buff_active    = False
-        self.buff_timer     = 0.0
-        self.atk_bonus      = 0.0
-        self.hp_bonus       = 0.0
+        self.buff_dur = float(data.get("buff_duration", 0.0))
+        self.buff_atk = float(data.get("buff_atk", 0.0))
+        self.buff_hp  = float(data.get("buff_hp",  0.0))
+
+        # FSM state
+        self.cd_timer    = 0.0
+        self.casting     = False
+        self.cast_timer  = 0.0
+        self.hits_fired  = 0
+        self.buff_active = False
+        self.buff_timer  = 0.0
+        self.atk_bonus   = 0.0
+        self.hp_bonus    = 0.0
+
+        # Successive hits spread evenly across a fraction of the cooldown
+        self.hit_interval = (self.cooldown / self.hits) if self.hits > 1 else 0.0
+
+    # ── lifecycle ───────────────────────────────────────────
 
     def tick(self, dt: float, carrier: "Fighter", target: "Fighter") -> None:
-        self.timer += dt
-        if self.skill_type == "damage":
-            self._tick_damage(dt, target)
-        elif self.skill_type == "buff":
+        if self.is_buff:
             self._tick_buff(dt, carrier)
+            return
+        if self.casting:
+            self._tick_cast(dt, target)
+        else:
+            self.cd_timer += dt
+            if self.cd_timer >= self.cooldown:
+                self.cd_timer   = 0.0
+                self.casting    = True
+                self.cast_timer = 0.0
+                self.hits_fired = 0
 
-    def _tick_damage(self, dt: float, target: "Fighter") -> None:
-        if self.hits_remaining > 0:
-            self.hit_timer += dt
-            if self.hit_timer >= self.hit_interval or self.hits == 1:
-                if target.alive():
-                    target.hp -= self.dmg_per_hit
-                self.hits_remaining -= 1
-                self.hit_timer = 0.0
-        elif self.timer >= self.cooldown:
-            self.timer = 0.0
-            self.hits_remaining = self.hits - 1
-            self.hit_timer = 0.0
-            if target.alive():
+    def _tick_cast(self, dt: float, target: "Fighter") -> None:
+        self.cast_timer += dt
+        while self.hits_fired < self.hits:
+            threshold = self.hits_fired * self.hit_interval
+            if self.cast_timer < threshold:
+                break
+            if target.alive() and random.random() >= target.block_chance:
                 target.hp -= self.dmg_per_hit
+            self.hits_fired += 1
+        if self.hits_fired >= self.hits:
+            self.casting = False
 
     def _tick_buff(self, dt: float, carrier: "Fighter") -> None:
         if self.buff_active:
             self.buff_timer += dt
             if self.buff_timer >= self.buff_dur:
                 carrier.attack -= self.atk_bonus
-                self.atk_bonus  = 0.0
-                self.hp_bonus   = 0.0
+                carrier.hp_max  = max(1.0, carrier.hp_max - self.hp_bonus)
+                carrier.hp      = min(carrier.hp, carrier.hp_max)
+                self.atk_bonus   = 0.0
+                self.hp_bonus    = 0.0
                 self.buff_active = False
                 self.buff_timer  = 0.0
-        elif self.timer >= self.cooldown:
-            self.timer       = 0.0
-            self.buff_active = True
-            self.buff_timer  = 0.0
-            self.atk_bonus   = self.buff_atk
-            self.hp_bonus    = self.buff_hp
-            carrier.attack += self.atk_bonus
-            carrier.hp     += self.hp_bonus
+        else:
+            self.cd_timer += dt
+            if self.cd_timer >= self.cooldown:
+                self.cd_timer    = 0.0
+                self.buff_active = True
+                self.buff_timer  = 0.0
+                self.atk_bonus   = self.buff_atk
+                self.hp_bonus    = self.buff_hp
+                carrier.attack += self.atk_bonus
+                carrier.hp_max += self.hp_bonus
+                carrier.hp     += self.hp_bonus
 
+
+# ════════════════════════════════════════════════════════════
+#  FIGHTER
+# ════════════════════════════════════════════════════════════
 
 class Fighter:
-    def __init__(self, s: Dict, active_skills: Optional[List[Tuple[str, Dict]]] = None):
-        self.hp_max        = s.get("hp_total", s.get("hp", 0.0))
-        self.hp            = float(self.hp_max)
-        self.health_regen  = s.get("health_regen",  0.0) / 100.0
-        self.attack        = s.get("attack_total", s.get("attack", 0.0))
-        self.attack_speed  = s.get("attack_speed",  0.0) / 100.0
-        self.double_chance = s.get("double_chance", 0.0) / 100.0
-        self.lifesteal     = s.get("lifesteal",     0.0) / 100.0
-        self.crit_chance   = s.get("crit_chance",   0.0) / 100.0
-        self.crit_damage   = s.get("crit_damage",   0.0) / 100.0
-        self.block_chance  = s.get("block_chance",  0.0) / 100.0
-        self.attack_type   = s.get("attack_type", "melee")
-        self.freq          = BASE_SPEED * (1.0 + self.attack_speed)
-        self.interval      = 1.0 / self.freq
-        self.timer         = 0.0
+    """
+    One combatant. Single-phase swing FSM:
+      - At swing start, roll double-hit → sets swing_duration.
+      - At swing end, release 1 or 2 hits (block / crit rolled per hit).
+    """
 
-        sd = s.get("skill_damage",   0.0)
-        sc = s.get("skill_cooldown", 0.0)
-        self.skills = [SkillInstance(data, sd, sc) for _, data in (active_skills or [])]
+    def __init__(
+        self,
+        stats:         Dict,
+        active_skills: Optional[List[Tuple[str, Dict]]] = None,
+    ):
+        # HP pool — same ×5 scaling for both sides.
+        self.hp_max = pvp_hp_total(stats)
+        self.hp     = self.hp_max
+        self.attack = float(stats.get("attack_total", stats.get("attack", 0.0)))
+
+        self.attack_speed_pct = float(stats.get("attack_speed", 0.0) or 0.0)
+        self.base_swing_time  = swing_time(self.attack_speed_pct)
+
+        self.double_chance = min(1.0, float(stats.get("double_chance", 0.0) or 0.0) / 100.0)
+        self.lifesteal     = float(stats.get("lifesteal",    0.0) or 0.0) / 100.0
+        self.crit_chance   = float(stats.get("crit_chance",  0.0) or 0.0) / 100.0
+        self.crit_multi    = crit_multi(float(stats.get("crit_damage", 0.0) or 0.0))
+        self.block_chance  = float(stats.get("block_chance", 0.0) or 0.0) / 100.0
+
+        # Regen: computed on raw hp_total (pre-×5), applied while hp<hp_max.
+        self.regen_per_sec    = pvp_regen_per_second(stats)
+        self._regen_snapshot  = self.regen_per_sec
+
+        # Swing FSM
+        self.swing_timer    = 0.0
+        self.swing_duration = self.base_swing_time
+        self.is_double      = False
+        self._start_swing()
+
+        # Build skill instances
+        sd_pct = float(stats.get("skill_damage",   0.0) or 0.0)
+        sc_pct = float(stats.get("skill_cooldown", 0.0) or 0.0)
+        self.skills: List[SkillInstance] = [
+            SkillInstance(data, sd_pct, sc_pct) for _, data in (active_skills or [])
+        ]
+
+    # ── queries ─────────────────────────────────────────────
 
     def alive(self) -> bool:
-        return self.hp > 0
+        return self.hp > 0.0
 
-    def regenerate(self, dt: float) -> None:
-        if self.hp < self.hp_max:
-            self.hp = min(self.hp_max, self.hp + self.hp_max * self.health_regen * dt)
+    def hp_pct(self) -> float:
+        return self.hp / self.hp_max if self.hp_max > 0 else 0.0
 
-    def strike(self, target: "Fighter") -> None:
-        hits = 2 if random.random() < self.double_chance else 1
+    # ── regen ───────────────────────────────────────────────
+
+    def refresh_regen_snapshot(self) -> None:
+        self._regen_snapshot = self.regen_per_sec
+
+    def apply_regen(self, dt: float) -> None:
+        if self.hp <= 0 or self.hp >= self.hp_max or self._regen_snapshot <= 0:
+            return
+        self.hp = min(self.hp_max, self.hp + self._regen_snapshot * dt)
+
+    # ── attack FSM ──────────────────────────────────────────
+
+    def _start_swing(self) -> None:
+        """Decide now whether this swing is a double-hit, set its duration."""
+        self.is_double      = (random.random() < self.double_chance)
+        self.swing_duration = self.base_swing_time * (2.0 if self.is_double else 1.0)
+        self.swing_timer    = 0.0
+
+    def tick_combat(self, dt: float, target: "Fighter") -> None:
+        self.swing_timer += dt
+        if self.swing_timer < self.swing_duration:
+            return
+        # Release the swing
+        hits = 2 if self.is_double else 1
         for _ in range(hits):
-            if random.random() < target.block_chance:
-                continue
-            dmg = self.attack * (1 + self.crit_damage) if random.random() < self.crit_chance else self.attack
-            target.hp -= dmg
+            if not target.alive():
+                break
+            self._perform_attack(target)
+        self._start_swing()
+
+    def _perform_attack(self, target: "Fighter") -> None:
+        # Block cancels the hit entirely.
+        if random.random() < target.block_chance:
+            return
+        dmg = self.attack
+        if random.random() < self.crit_chance:
+            dmg *= self.crit_multi
+        target.hp -= dmg
+        # Lifesteal — basic attacks only, only when below hp_max.
+        if self.lifesteal > 0 and self.hp < self.hp_max:
             self.hp = min(self.hp_max, self.hp + dmg * self.lifesteal)
 
 
+# ════════════════════════════════════════════════════════════
+#  SIMULATE
+# ════════════════════════════════════════════════════════════
+
+def _resolve_timeout(p: Fighter, o: Fighter) -> str:
+    gap = p.hp_pct() - o.hp_pct()
+    if abs(gap) < PVP_RESOLUTION_EPSILON:
+        return "DRAW"
+    return "WIN" if gap > 0 else "LOSE"
+
+
 def simulate(
-    sj: Dict,
-    se: Dict,
-    skills_p: Optional[List[Tuple[str, Dict]]] = None,
-    skills_o: Optional[List[Tuple[str, Dict]]] = None,
-    max_duration: float = DEFAULT_MAX_DURATION,
+    sj:           Dict,
+    se:           Dict,
+    skills_p:     Optional[List[Tuple[str, Dict]]] = None,
+    skills_o:     Optional[List[Tuple[str, Dict]]] = None,
+    max_duration: float                            = DEFAULT_MAX_DURATION,
 ) -> str:
-    """Run a single fight. Returns 'WIN', 'LOSE' or 'DRAW'."""
+    """
+    Run a single PvP fight. Returns 'WIN', 'LOSE' or 'DRAW'.
+
+    - `sj`, `se`            : player / opponent combat stats.
+    - `skills_p`, `skills_o`: equipped skills — [(label, data), ...].
+    """
     p = Fighter(sj, skills_p)
     o = Fighter(se, skills_o)
 
-    if p.attack_type == o.attack_type:
-        # Randomise the tiny offset so neither fighter has a systematic
-        # first-strike advantage when stats are identical.
-        offset = random.uniform(0.0, p.interval)
-        p.timer, o.timer = offset, offset
-    elif p.attack_type == "ranged":
-        p.timer, o.timer = 0.0, -RANGED_LEAD
-    else:
-        p.timer, o.timer = -RANGED_LEAD, 0.0
-
     t = 0.0
+    last_regen_refresh = 0.0
     while t < max_duration:
         if not p.alive() or not o.alive():
             break
-        p.regenerate(TICK)
-        o.regenerate(TICK)
-        for sk in p.skills:
-            sk.tick(TICK, p, o)
-        for sk in o.skills:
-            sk.tick(TICK, o, p)
-        p.timer += TICK
-        o.timer += TICK
 
-        # Randomise strike order each tick to avoid positional bias
-        # when both fighters are ready at the same time.
-        p_ready = p.timer >= p.interval
-        o_ready = o.timer >= o.interval
-        if p_ready and o_ready and random.random() < 0.5:
-            # o strikes first this tick
-            o.timer = 0.0
-            if p.alive():
-                o.strike(p)
-            p.timer = 0.0
-            if o.alive():
-                p.strike(o)
+        # Regen snapshot once per second, applied every tick.
+        if t - last_regen_refresh >= 1.0:
+            p.refresh_regen_snapshot()
+            o.refresh_regen_snapshot()
+            last_regen_refresh = t
+        p.apply_regen(TICK)
+        o.apply_regen(TICK)
+
+        # Skills (interleaved order randomised per tick).
+        if random.random() < 0.5:
+            for sk in p.skills: sk.tick(TICK, p, o)
+            for sk in o.skills: sk.tick(TICK, o, p)
         else:
-            if p_ready:
-                p.timer = 0.0
-                if o.alive():
-                    p.strike(o)
-            if o_ready:
-                o.timer = 0.0
-                if p.alive():
-                    o.strike(p)
+            for sk in o.skills: sk.tick(TICK, o, p)
+            for sk in p.skills: sk.tick(TICK, p, o)
+
+        # Basic-attack FSM (order randomised per tick).
+        if random.random() < 0.5:
+            p.tick_combat(TICK, o)
+            if o.alive():
+                o.tick_combat(TICK, p)
+        else:
+            o.tick_combat(TICK, p)
+            if p.alive():
+                p.tick_combat(TICK, o)
 
         t += TICK
 
@@ -191,19 +301,18 @@ def simulate(
         return "WIN"
     if o.alive() and not p.alive():
         return "LOSE"
-    # Both dead simultaneously → DRAW (not LOSE)
     if not p.alive() and not o.alive():
         return "DRAW"
-    return "DRAW"
+    return _resolve_timeout(p, o)
 
 
 def simulate_batch(
-    sj: Dict,
-    se: Dict,
-    skills_p: Optional[List[Tuple[str, Dict]]] = None,
-    skills_o: Optional[List[Tuple[str, Dict]]] = None,
-    n: int = N_SIMULATIONS,
-    max_duration: float = DEFAULT_MAX_DURATION,
+    sj:           Dict,
+    se:           Dict,
+    skills_p:     Optional[List[Tuple[str, Dict]]] = None,
+    skills_o:     Optional[List[Tuple[str, Dict]]] = None,
+    n:            int                              = N_SIMULATIONS,
+    max_duration: float                            = DEFAULT_MAX_DURATION,
 ) -> Tuple[int, int, int]:
     """Run N fights. Returns (wins, loses, draws)."""
     wins = loses = draws = 0

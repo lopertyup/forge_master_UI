@@ -1,210 +1,46 @@
 # ============================================================
-# FORGE MASTER — Skills
-# IMPORTANT: all damage/buff values are for level 1.
-# Damage scales with the skill's level.
-#
-# damage        = damage per hit (total / hits)
-# cooldown      = cooldown in seconds
-# hits          = number of damage instances
-# buff_duration = buff duration in seconds (buff only)
-# buff_atk      = attack bonus granted by the buff
-# buff_hp       = HP bonus granted by the buff
+# FORGE MASTER — Active skills (3 slots, editable by hand)
 # ============================================================
 
-[c1]
-name          = Meat
-rarity        = common
-type          = buff
-damage        = 0
-cooldown      = 8.0
-hits          = 0
-buff_duration = 10.0
-buff_atk      = 0
-buff_hp       = 100
+[S1]
+__name__       = Stampede
+__rarity__     = ultimate
+__level__      = 3
+type           = damage
+damage         = 692500.0
+hits           = 4.0
+cooldown       = 20.0
+buff_duration  = 0.0
+buff_atk       = 0.0
+buff_hp        = 0.0
+passive_damage = 43400.0
+passive_hp     = 347000.0
 
-[c2]
-name          = Arrow Rain
-rarity        = common
-type          = damage
-damage        = 67
-cooldown      = 7.0
-hits          = 3
-buff_duration = 0
-buff_atk      = 0
-buff_hp       = 0
+[S2]
+__name__       = Worm
+__rarity__     = ultimate
+__level__      = 3
+type           = damage
+damage         = 5550000.0
+hits           = 1.0
+cooldown       = 8.0
+buff_duration  = 0.0
+buff_atk       = 0.0
+buff_hp        = 0.0
+passive_damage = 43400.0
+passive_hp     = 347000.0
 
-[c3]
-name          = Shout
-rarity        = common
-type          = damage
-damage        = 19
-cooldown      = 6.0
-hits          = 8
-buff_duration = 0
-buff_atk      = 0
-buff_hp       = 0
+[S3]
+__name__       = Lightning
+__rarity__     = ultimate
+__level__      = 2
+type           = damage
+damage         = 110000.0
+hits           = 5.0
+cooldown       = 3.0
+buff_duration  = 0.0
+buff_atk       = 0.0
+buff_hp        = 0.0
+passive_damage = 43000.0
+passive_hp     = 344000.0
 
-[r1]
-name          = Shurikens
-rarity        = rare
-type          = damage
-damage        = 256
-cooldown      = 4.0
-hits          = 5
-buff_duration = 0
-buff_atk      = 0
-buff_hp       = 0
-
-[r2]
-name          = Berserk
-rarity        = rare
-type          = buff
-damage        = 0
-cooldown      = 8.0
-hits          = 0
-buff_duration = 10.0
-buff_atk      = 1280
-buff_hp       = 0
-
-[r3]
-name          = Cannon Barrage
-rarity        = rare
-type          = damage
-damage        = 427
-cooldown      = 5.0
-hits          = 3
-buff_duration = 0
-buff_atk      = 0
-buff_hp       = 0
-
-[e1]
-name          = Thorns
-rarity        = epic
-type          = damage
-damage        = 6912
-cooldown      = 5.0
-hits          = 2
-buff_duration = 0
-buff_atk      = 0
-buff_hp       = 0
-
-[e2]
-name          = Buff
-rarity        = epic
-type          = buff
-damage        = 0
-cooldown      = 8.0
-hits          = 0
-buff_duration = 10.0
-buff_atk      = 6750
-buff_hp       = 54000
-
-[e3]
-name          = Rain of Arrows
-rarity        = epic
-type          = damage
-damage        = 6750
-cooldown      = 10.0
-hits          = 10
-buff_duration = 0
-buff_atk      = 0
-buff_hp       = 0
-
-[l1]
-name          = Morale
-rarity        = legendary
-type          = buff
-damage        = 0
-cooldown      = 8.0
-hits          = 0
-buff_duration = 10.0
-buff_atk      = 128000
-buff_hp       = 1024000
-
-[l2]
-name          = Meteorite
-rarity        = legendary
-type          = damage
-damage        = 200000
-cooldown      = 9.0
-hits          = 5
-buff_duration = 0
-buff_atk      = 0
-buff_hp       = 0
-
-[l3]
-name          = Bomb
-rarity        = legendary
-type          = damage
-damage        = 600000
-cooldown      = 6.0
-hits          = 1
-buff_duration = 0
-buff_atk      = 0
-buff_hp       = 0
-
-[u1]
-name          = Stampede
-rarity        = ultimate
-type          = damage
-damage        = 540000
-cooldown      = 20.0
-hits          = 4
-buff_duration = 0
-buff_atk      = 0
-buff_hp       = 0
-
-[u2]
-name          = Worm
-rarity        = ultimate
-type          = damage
-damage        = 4320000
-cooldown      = 8.0
-hits          = 1
-buff_duration = 0
-buff_atk      = 0
-buff_hp       = 0
-
-[u3]
-name          = Lightning
-rarity        = ultimate
-type          = damage
-damage        = 432000
-cooldown      = 3.0
-hits          = 5
-buff_duration = 0
-buff_atk      = 0
-buff_hp       = 0
-
-[m1]
-name          = Higher Morale
-rarity        = mythic
-type          = buff
-damage        = 0
-cooldown      = 8.0
-hits          = 0
-buff_duration = 8.0
-buff_atk      = 15552000
-buff_hp       = 124416000
-
-[m2]
-name          = Strafe Run
-rarity        = mythic
-type          = damage
-damage        = 4608000
-cooldown      = 10.0
-hits          = 3
-buff_duration = 0
-buff_atk      = 0
-buff_hp       = 0
-
-[m3]
-name          = Drone
-rarity        = mythic
-type          = damage
-damage        = 2142857
-cooldown      = 8.0
-hits          = 7
-buff_duration = 8.0
-buff_atk      = 0
-buff_hp       = 0

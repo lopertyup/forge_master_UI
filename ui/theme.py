@@ -136,6 +136,16 @@ def load_icon(code: str, size: int = 48) -> Optional[ctk.CTkImage]:
     return _load_icon_from(ICONS_DIR, code, size)
 
 
+def load_skill_icon_by_name(name: str, size: int = 48) -> Optional[ctk.CTkImage]:
+    """
+    Load a skill icon by its NAME from `skill_icons/<Name>.png`
+    (same pattern as load_pet_icon / load_mount_icon). None if absent.
+    """
+    if not name:
+        return None
+    return _load_icon_from(ICONS_DIR, name.strip(), size)
+
+
 def load_pet_icon(name: str, size: int = 48) -> Optional[ctk.CTkImage]:
     """Load a pet icon from pet_icons/<Name>.png. None if absent."""
     return _load_icon_from(PET_ICONS_DIR, name, size)

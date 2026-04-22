@@ -3,20 +3,21 @@
 # ============================================================
 
 [MOUNT]
-__name__             = Brown Horse
+__name__             = Crab
 __rarity__           = rare
-hp_flat              = 80000.0
-damage_flat          = 10000.0
+__level__            = 1
+hp_flat              = 83200.0
+damage_flat          = 10400.0
 health_pct           = 0.0
 damage_pct           = 0.0
 melee_pct            = 0.0
 ranged_pct           = 0.0
-crit_chance          = 0.0
+crit_chance          = 10.6
 crit_damage          = 0.0
 health_regen         = 0.0
 lifesteal            = 0.0
 double_chance        = 0.0
-attack_speed         = 36.4
+attack_speed         = 0.0
 skill_damage         = 0.0
 skill_cooldown       = 0.0
 block_chance         = 0.0

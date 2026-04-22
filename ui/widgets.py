@@ -277,11 +277,19 @@ def companion_slot_card(parent: ctk.CTkBaseClass, slot_label: str,
     if name:
         ctk.CTkLabel(info, text=name, font=FONT_SUB,
                      text_color=C["text"], anchor="w").pack(anchor="w")
+        # Rarity badge + (optional) level badge on the same row
+        meta_row = ctk.CTkFrame(info, fg_color="transparent")
+        meta_row.pack(anchor="w", fill="x")
         if rarity:
             rar = str(rarity).lower()
-            ctk.CTkLabel(info, text=rar.upper(), font=FONT_TINY,
+            ctk.CTkLabel(meta_row, text=rar.upper(), font=FONT_TINY,
                          text_color=rarity_color(rar), anchor="w").pack(
-                anchor="w")
+                side="left")
+        lvl = stats.get("__level__")
+        if lvl:
+            ctk.CTkLabel(meta_row, text=f"Lv.{int(lvl)}", font=FONT_TINY,
+                         text_color=C["accent"], anchor="w").pack(
+                side="left", padx=(8, 0))
     else:
         ctk.CTkLabel(info, text="— free —", font=FONT_BODY,
                      text_color=C["muted"], anchor="w").pack(anchor="w")
@@ -324,13 +332,19 @@ def skill_icon_grid(parent: ctk.CTkBaseClass,
     Returns (frame, widgets) where widgets = {code: (label, frame)} so the
     caller can refresh things visually.
     """
-    from .theme import load_icon, rarity_color
+    from .theme import RARITY_ORDER, load_icon, rarity_color
 
     grid = ctk.CTkFrame(parent, fg_color=C["bg"],
                         border_color=C["border"], border_width=1,
                         corner_radius=8)
 
     widgets: Dict[str, Tuple[ctk.CTkLabel, ctk.CTkFrame]] = {}
+
+    def _rarity_sort_key(item: Tuple[str, Dict]) -> Tuple[int, str]:
+        code, data = item
+        rar = str(data.get("rarity", "common")).lower()
+        idx = RARITY_ORDER.index(rar) if rar in RARITY_ORDER else 0
+        return (idx, str(data.get("name", code)).lower())
 
     def _refresh(code: str) -> None:
         lbl, frame = widgets[code]
@@ -347,7 +361,8 @@ def skill_icon_grid(parent: ctk.CTkBaseClass,
             _refresh(code)
         return _click
 
-    for i, (code, data) in enumerate(sorted(all_skills.items())):
+    for i, (code, data) in enumerate(sorted(all_skills.items(),
+                                              key=_rarity_sort_key)):
         color    = rarity_color(str(data.get("rarity", "common")).lower())
         icon_img = load_icon(code, size=icon_size)
         name     = data.get("name", code)

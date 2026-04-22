@@ -23,31 +23,40 @@ from backend.constants import (
     N_SIMULATIONS,
     PETS_STATS_KEYS,
 )
+from backend.constants import SKILL_PASSIVE_LV1
 from backend.parser import (
     parse_companion_meta,
     parse_equipment,
     parse_mount,
     parse_pet,
     parse_profile_text,
+    parse_skill_meta,
 )
 from backend.persistence import (
+    SKILL_SLOTS,
+    empty_skill,
     load_mount,
     load_mount_library,
     load_pets,
     load_pets_library,
     load_profile,
+    load_skill_slots,
     load_skills,
+    load_skills_library,
     save_mount,
     save_mount_library,
     save_pets,
     save_pets_library,
     save_profile,
+    save_skills,
+    save_skills_library,
 )
 from backend.simulation import simulate_batch
 from backend.stats import (
     apply_change,
     apply_mount,
     apply_pet,
+    apply_skill,
     combat_stats,
     finalize_bases,
 )
@@ -61,14 +70,15 @@ class GameController:
     # ── Init / loading ──────────────────────────────────────
 
     def __init__(self) -> None:
-        self._profile: Optional[Dict]       = None
-        self._skills: List                   = []
-        self._pets:   Dict[str, Dict]        = {}
-        self._mount:  Dict                   = {}
-        self._all_skills:    Dict[str, Dict] = {}
-        self._pets_library:  Dict[str, Dict] = {}
-        self._mount_library: Dict[str, Dict] = {}
-        self._tk_root                        = None  # for thread-safe after()
+        self._profile: Optional[Dict]        = None
+        self._skills:  List[Tuple[str, Dict]] = []   # equipped skills (S1/S2/S3 → data)
+        self._skill_slots:    Dict[str, Dict] = {}   # raw {slot_label: data}
+        self._pets:           Dict[str, Dict] = {}
+        self._mount:          Dict            = {}
+        self._pets_library:   Dict[str, Dict] = {}
+        self._mount_library:  Dict[str, Dict] = {}
+        self._skills_library: Dict[str, Dict] = {}
+        self._tk_root                         = None  # for thread-safe after()
         self.reload()
 
     def set_tk_root(self, root) -> None:
@@ -78,15 +88,18 @@ class GameController:
     def reload(self) -> None:
         """Reload profile + pets + mount + skills + libraries from disk."""
         self._profile, self._skills = load_profile()
+        self._skill_slots           = load_skill_slots()
         self._pets                  = load_pets()
         self._mount                 = load_mount()
-        self._all_skills            = load_skills()
         self._pets_library          = load_pets_library()
         self._mount_library         = load_mount_library()
-        log.info("GameController.reload: profile=%s, pets=%d, skills=%d, lib_pets=%d, lib_mount=%d",
+        self._skills_library        = load_skills_library()
+        log.info("GameController.reload: profile=%s, pets=%d, skills=%d/3, "
+                 "lib_pets=%d, lib_mount=%d, lib_skills=%d",
                  "OK" if self._profile else "-",
-                 len(self._pets), len(self._all_skills),
-                 len(self._pets_library), len(self._mount_library))
+                 len(self._pets), len(self._skills),
+                 len(self._pets_library), len(self._mount_library),
+                 len(self._skills_library))
 
     # ── Profile ─────────────────────────────────────────────
 
@@ -96,30 +109,54 @@ class GameController:
     def get_profile(self) -> Dict:
         return dict(self._profile) if self._profile else {}
 
-    def get_active_skills(self) -> List:
+    def get_active_skills(self) -> List[Tuple[str, Dict]]:
+        """Equipped skills as [(slot_label, data), ...]."""
         return list(self._skills)
 
+    # ── Back-compat shims for the old code-based skill API ──
+    #
+    # The old views (simulator, dashboard) iterate a catalog keyed by
+    # a "code" and pick 3 entries by code. With the library-based
+    # system, the catalog is `skills_library` keyed by NAME. The
+    # name IS the code — case is preserved so skill_icon_grid's
+    # `load_icon(code)` maps to `skill_icons/<Name>.png`.
+
     def get_all_skills(self) -> Dict[str, Dict]:
-        return dict(self._all_skills)
+        """Expose the skills library keyed by the skill's Name (as-is)."""
+        out: Dict[str, Dict] = {}
+        for name, entry in self._skills_library.items():
+            merged = dict(entry)
+            merged.setdefault("name", name)
+            out[name] = merged
+        return out
+
+    def get_skills_from_codes(self, codes: List[str]) -> List[Tuple[str, Dict]]:
+        """
+        Resolve a list of skill names → [(name, data), ...].
+        Case-insensitive lookup against the library so legacy
+        lowercased codes still resolve.
+        """
+        catalog = self.get_all_skills()
+        lc_index = {k.lower(): k for k in catalog}
+        result: List[Tuple[str, Dict]] = []
+        for raw in (codes or [])[:3]:
+            key = lc_index.get(str(raw).strip().lower())
+            if key is not None:
+                result.append((key, catalog[key]))
+        return result
 
     def import_profile_text(self, text: str, attack_type: str) -> Dict:
         stats = parse_profile_text(text)
         stats["attack_type"] = attack_type
         return finalize_bases(stats)
 
-    def set_profile(self, profile: Dict, skills: List) -> None:
+    def set_profile(self, profile: Dict, skills: Optional[List] = None) -> None:
+        """
+        `skills` is accepted for back-compat but ignored: equipped skills
+        are persisted separately via set_skill().
+        """
         self._profile = profile
-        self._skills  = skills
-        save_profile(profile, skills)
-
-    def get_skills_from_codes(self, codes: List[str]) -> List[Tuple[str, Dict]]:
-        """Convert a list of codes (e.g. ['cgs','uss','beb']) into [(code, data), ...]."""
-        result: List[Tuple[str, Dict]] = []
-        for code in codes[:3]:
-            code = code.strip().lower()
-            if code in self._all_skills:
-                result.append((code, self._all_skills[code]))
-        return result
+        save_profile(profile)
 
     # ── Thread-safe helpers ─────────────────────────────────
 
@@ -241,6 +278,9 @@ class GameController:
         current_profile = dict(self._profile)
         current_pets    = {k: dict(v) for k, v in self._pets.items()}
         skills          = list(self._skills)
+        # New pet & old pets are downgraded to Lv.1 stats so the swap
+        # comparison is fair (a Lv.10 wouldn't auto-beat a Lv.5).
+        new_pet_lv1     = self._lv1_version_of(new_pet, self._pets_library)
 
         def _run() -> None:
             results: Dict[str, Tuple[int, int, int]] = {}
@@ -248,9 +288,11 @@ class GameController:
                 for name in ("PET1", "PET2", "PET3"):
                     old_pet = current_pets.get(
                         name, {k: 0.0 for k in PETS_STATS_KEYS})
+                    old_pet_lv1 = self._lv1_version_of(
+                        old_pet, self._pets_library)
                     results[name] = self._compare_profile_vs_profile(
                         new_profile=apply_pet(
-                            current_profile, old_pet, new_pet),
+                            current_profile, old_pet_lv1, new_pet_lv1),
                         old_profile=current_profile,
                         skills=skills,
                     )
@@ -298,12 +340,16 @@ class GameController:
         current_mount   = dict(self._mount) if self._mount else {
             k: 0.0 for k in COMPANION_STATS_KEYS}
         skills          = list(self._skills)
+        # Same fair-comparison rule as test_pet: both old and new mount
+        # are downgraded to Lv.1 stats from the library before applying.
+        new_mount_lv1   = self._lv1_version_of(new_mount, self._mount_library)
+        old_mount_lv1   = self._lv1_version_of(current_mount, self._mount_library)
 
         def _run() -> None:
             try:
                 w, l, d = self._compare_profile_vs_profile(
                     new_profile=apply_mount(
-                        current_profile, current_mount, new_mount),
+                        current_profile, old_mount_lv1, new_mount_lv1),
                     old_profile=current_profile,
                     skills=skills,
                 )
@@ -313,6 +359,202 @@ class GameController:
             self._dispatch(callback, w, l, d)
 
         threading.Thread(target=_run, daemon=True).start()
+
+    # ── Skills ──────────────────────────────────────────────
+
+    def get_skill_slots(self) -> Dict[str, Dict]:
+        """Raw {S1: data, S2: data, S3: data} including empty slots."""
+        return {k: dict(v) for k, v in self._skill_slots.items()}
+
+    def get_skill_slot(self, slot: str) -> Dict:
+        return dict(self._skill_slots.get(slot, empty_skill()))
+
+    def get_skills_library(self) -> Dict[str, Dict]:
+        return {k: dict(v) for k, v in self._skills_library.items()}
+
+    def remove_skill_library(self, name: str) -> bool:
+        return self._remove_library(name, self._skills_library,
+                                    save_skills_library)
+
+    def resolve_skill(self, text: str) -> Tuple[Optional[Dict], str, Optional[Dict]]:
+        """
+        Resolve a pasted skill text into (normalized_skill, status, meta).
+
+        status ∈ {"ok", "added", "unknown_not_lvl1", "no_name"}
+          - "ok"               : name found in library, current-level stats kept
+          - "added"            : name unknown but Lv.1 → auto-added, then "ok"
+          - "unknown_not_lvl1" : name unknown and not Lv.1 → normalized = None
+          - "no_name"          : couldn't extract a skill name → None
+        """
+        meta  = parse_skill_meta(text)
+        name  = meta.get("name")
+        level = meta.get("level")
+        rarity_in = meta.get("rarity")
+
+        if not name:
+            return None, "no_name", meta
+
+        key = self._find_library_key(self._skills_library, name)
+
+        if key is None:
+            # Unknown — auto-add iff Lv.1 with full stats
+            if level == 1 and (
+                meta.get("total_damage") or meta.get("passive_damage")
+                or meta.get("passive_hp")
+            ):
+                # We don't know `hits`/`cooldown`/`type` from a paste alone.
+                # Default: damage skill, 1 hit, cooldown 0 (UX flag for the
+                # user to fill it in afterwards). The library is editable
+                # by hand for refinement.
+                rarity = rarity_in or "common"
+                pass_lv1 = SKILL_PASSIVE_LV1.get(rarity, {})
+                self._skills_library[name] = {
+                    "rarity":         rarity,
+                    "type":           "damage",
+                    "damage":         float(meta.get("total_damage") or 0.0),
+                    "hits":           1.0,
+                    "cooldown":       0.0,
+                    "buff_duration":  0.0,
+                    "buff_atk":       0.0,
+                    "buff_hp":        0.0,
+                    "passive_damage": float(meta.get("passive_damage")
+                                             or pass_lv1.get("passive_damage", 0.0)),
+                    "passive_hp":     float(meta.get("passive_hp")
+                                             or pass_lv1.get("passive_hp", 0.0)),
+                }
+                save_skills_library(self._skills_library)
+                log.info("Skills library: '%s' auto-added (Lv.1)", name)
+                key = name
+                status = "added"
+            else:
+                return None, "unknown_not_lvl1", meta
+        else:
+            status = "ok"
+
+        # Build a fully-stated skill dict at the player's CURRENT level
+        # using the library entry as a structural reference.
+        ref       = self._skills_library[key]
+        hits      = max(1, int(ref.get("hits", 1) or 1))
+        per_hit   = (float(meta.get("total_damage") or 0.0) / hits) if meta.get("total_damage") else float(ref.get("damage", 0.0))
+        rarity    = str(ref.get("rarity", rarity_in or "common")).lower()
+        pass_dmg  = float(meta.get("passive_damage") or 0.0) or float(ref.get("passive_damage", 0.0))
+        pass_hp   = float(meta.get("passive_hp")     or 0.0) or float(ref.get("passive_hp",     0.0))
+
+        out: Dict = {
+            "__name__":       key,
+            "__rarity__":     rarity,
+            "__level__":      int(level) if level is not None else 1,
+            "name":           key,
+            "type":           str(ref.get("type", "damage")),
+            "damage":         per_hit,
+            "hits":           float(hits),
+            "cooldown":       float(ref.get("cooldown", 0.0)),
+            "buff_duration":  float(ref.get("buff_duration", 0.0)),
+            "buff_atk":       float(ref.get("buff_atk", 0.0)),
+            "buff_hp":        float(ref.get("buff_hp", 0.0)),
+            "passive_damage": pass_dmg,
+            "passive_hp":     pass_hp,
+        }
+        return out, status, meta
+
+    def set_skill(self, slot: str, skill: Dict) -> None:
+        """Persist a skill into a slot AND apply its passive swap on the profile."""
+        if slot not in SKILL_SLOTS:
+            log.warning("set_skill: invalid slot %r", slot)
+            return
+
+        old_slot = dict(self._skill_slots.get(slot) or empty_skill())
+        new_slot = dict(skill)
+
+        # Update the on-disk skill slot
+        self._skill_slots[slot] = new_slot
+        save_skills(self._skill_slots)
+
+        # Refresh in-memory equipped list (mirror name → "name" for sim)
+        self._skills = [(s, self._skill_slots[s])
+                        for s in SKILL_SLOTS
+                        if self._skill_slots[s].get("__name__")]
+
+        # Re-apply the passive delta on the profile
+        if self._profile is not None:
+            new_profile = apply_skill(self._profile, old_slot, new_slot)
+            self._profile = new_profile
+            save_profile(new_profile)
+
+    def test_skill(
+        self,
+        new_skill: Dict,
+        callback: Callable[[Dict[str, Tuple[int, int, int]]], None],
+    ) -> None:
+        """
+        For each S1/S2/S3 slot:
+          NEW_ME (with new skill installed in that slot, profile passive
+          adjusted) vs OLD_ME (current profile, current skills).
+        Both versions of the skill are flattened to Lv.1 for fairness.
+        """
+        if self._profile is None:
+            self._dispatch(callback, {})
+            return
+
+        current_profile = dict(self._profile)
+        current_slots   = {k: dict(v) for k, v in self._skill_slots.items()}
+        new_skill_lv1   = self._skill_lv1_version(new_skill)
+        active_slots_old = [(s, current_slots[s])
+                            for s in SKILL_SLOTS
+                            if current_slots[s].get("__name__")]
+
+        def _run() -> None:
+            results: Dict[str, Tuple[int, int, int]] = {}
+            try:
+                for slot in SKILL_SLOTS:
+                    old_skill = current_slots.get(slot) or empty_skill()
+                    old_skill_lv1 = self._skill_lv1_version(old_skill)
+                    candidate_profile = apply_skill(
+                        current_profile, old_skill_lv1, new_skill_lv1)
+                    # Build the candidate's active skill list: same as current,
+                    # but with `slot` replaced by the new (Lv.1) skill.
+                    candidate_slots = dict(current_slots)
+                    candidate_slots[slot] = new_skill_lv1
+                    active_slots_new = [(s, candidate_slots[s])
+                                        for s in SKILL_SLOTS
+                                        if candidate_slots[s].get("__name__")]
+                    results[slot] = self._compare_profile_vs_profile(
+                        new_profile=candidate_profile,
+                        old_profile=current_profile,
+                        skills_new=active_slots_new,
+                        skills_old=active_slots_old,
+                    )
+            except Exception:
+                log.exception("test_skill() raised an exception")
+            self._dispatch(callback, results)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _skill_lv1_version(self, skill: Dict) -> Dict:
+        """
+        Build a Lv.1-equivalent of an equipped skill, used for swap
+        comparisons. The skill's NAME is looked up in the library and
+        all the leveled stats (damage, passive_damage, passive_hp) are
+        rebased to the library's Lv.1 values. Cooldown/hits/buff_*
+        already don't scale with level — we keep them as-is.
+        """
+        if not skill or not skill.get("__name__"):
+            return dict(skill or {})
+        key = self._find_library_key(self._skills_library, skill["__name__"])
+        if key is None:
+            return dict(skill)
+        ref = self._skills_library[key]
+        out = dict(skill)
+        out["damage"]         = float(ref.get("damage", 0.0))
+        out["hits"]           = float(ref.get("hits", out.get("hits", 1.0)))
+        out["cooldown"]       = float(ref.get("cooldown", out.get("cooldown", 0.0)))
+        out["buff_duration"]  = float(ref.get("buff_duration",
+                                              out.get("buff_duration", 0.0)))
+        out["buff_atk"]       = float(ref.get("buff_atk", out.get("buff_atk", 0.0)))
+        out["buff_hp"]        = float(ref.get("buff_hp", out.get("buff_hp", 0.0)))
+        out["passive_damage"] = float(ref.get("passive_damage", 0.0))
+        out["passive_hp"]     = float(ref.get("passive_hp", 0.0))
+        return out
 
     # ── Library helpers ─────────────────────────────────────
 
@@ -324,6 +566,33 @@ class GameController:
             if key.lower() == name_lc:
                 return key
         return None
+
+    @staticmethod
+    def _lv1_version_of(
+        companion: Dict, library: Dict[str, Dict],
+    ) -> Dict:
+        """
+        Build a Lv.1-equivalent of an equipped pet/mount, used for swap
+        comparisons. We keep the % stats (lifesteal, attack_speed, etc.)
+        as-is — only the FLAT stats (hp_flat / damage_flat) are pulled
+        from the library so the comparison stays at "equal level".
+
+        If the companion isn't in the library (no __name__), the input
+        is returned unchanged (best effort).
+        """
+        if not companion:
+            return companion
+        name = companion.get("__name__")
+        if not name:
+            return dict(companion)
+        key = GameController._find_library_key(library, name)
+        if key is None:
+            return dict(companion)
+        ref = library[key]
+        out = dict(companion)
+        out["hp_flat"]     = float(ref.get("hp_flat", 0.0))
+        out["damage_flat"] = float(ref.get("damage_flat", 0.0))
+        return out
 
     def _resolve_companion(
         self,
@@ -388,15 +657,17 @@ class GameController:
             else:
                 status = "ok"
 
-        # Override flat stats with the library values (level 1)
+        # Keep the ACTUAL scanned hp_flat / damage_flat (current level).
+        # The Lv.1 reference values stay in the library and are looked up
+        # only when running swap simulations (see _lv1_version_of below).
         ref = library[key]
-        stats["hp_flat"]     = float(ref.get("hp_flat", 0.0))
-        stats["damage_flat"] = float(ref.get("damage_flat", 0.0))
 
-        # Annotate the resolved companion with its identity (used by the UI
-        # to show name + icon of the equipped pets/mount)
+        # Annotate the resolved companion with its identity + level (used
+        # by the UI to show name + icon + level of the equipped slot).
         stats["__name__"]   = key
         stats["__rarity__"] = str(ref.get("rarity", "common")).lower()
+        if level is not None:
+            stats["__level__"] = int(level)
         return stats, status, meta
 
     @staticmethod
@@ -418,16 +689,24 @@ class GameController:
     def _compare_profile_vs_profile(
         new_profile: Dict,
         old_profile: Dict,
-        skills: List,
+        skills:      Optional[List] = None,
+        skills_new:  Optional[List] = None,
+        skills_old:  Optional[List] = None,
     ) -> Tuple[int, int, int]:
         """
         Run N_SIMULATIONS fights of new_profile vs old_profile with the
         'companion' max duration (shorter, to avoid draws between two
         nearly identical builds).
+
+        `skills` provides the same skill list to both sides (pet/mount
+        swap tests). For a skill swap test, pass distinct `skills_new`
+        and `skills_old` instead.
         """
+        if skills_new is None: skills_new = skills
+        if skills_old is None: skills_old = skills
         sj = combat_stats(new_profile)
         se = combat_stats(old_profile)
-        return simulate_batch(sj, se, skills, skills,
+        return simulate_batch(sj, se, skills_new, skills_old,
                               n=N_SIMULATIONS,
                               max_duration=COMPANION_MAX_DURATION)
 

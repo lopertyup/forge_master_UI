@@ -217,3 +217,82 @@ def parse_companion_meta(text: str) -> Dict:
 # Back-compat aliases
 parse_pet   = parse_companion
 parse_mount = parse_companion
+
+
+# ════════════════════════════════════════════════════════════
+#  SKILL (in-game text)
+# ════════════════════════════════════════════════════════════
+#
+#  Sample input the user copies from the game:
+#
+#      Equipped
+#      Lv.3
+#      0/2
+#      [Ultimate] Stampede
+#      Call on a Bull stampede, each
+#      dealing 2.77m Damage
+#      Passive:
+#      +43.4k Base Damage +347k Base Health
+#
+#  Note: the "dealing X Damage" line gives the TOTAL damage of one
+#  cast (sum across hits). To match the simulator's "damage per hit"
+#  convention we divide by `hits` from the library entry.
+# ════════════════════════════════════════════════════════════
+
+_RE_SKILL_NAME_RARITY = re.compile(
+    r'\[\s*([A-Za-z]+)\s*\]\s*([^\r\n\[\]]+?)\s*(?:\n|$)',
+    re.IGNORECASE,
+)
+# Tolerate "dealing 2.77m Damage" / "deals 600k Damage" / "1.2m Damage"
+_RE_SKILL_DAMAGE = re.compile(
+    r'(?:dealing|deals|deal)?\s*([\d.]+\s*[kmb]?)\s*Damage(?!\s*%)',
+    re.IGNORECASE,
+)
+_RE_SKILL_PASS_DMG = re.compile(
+    r'\+\s*([\d.]+\s*[kmb]?)\s*Base\s*Damage', re.IGNORECASE)
+_RE_SKILL_PASS_HP  = re.compile(
+    r'\+\s*([\d.]+\s*[kmb]?)\s*Base\s*Health', re.IGNORECASE)
+
+
+def parse_skill_meta(text: str) -> Dict:
+    """
+    Extract skill metadata from a pasted in-game block:
+      - name           : str or None
+      - rarity         : str (lowercase) or None
+      - level          : int or None
+      - total_damage   : float (sum across hits, as printed in game) or 0
+      - passive_damage : float or 0
+      - passive_hp     : float or 0
+    """
+    m_lv = _RE_LEVEL.search(text)
+    level = int(m_lv.group(1)) if m_lv else None
+
+    m_nr = _RE_SKILL_NAME_RARITY.search(text)
+    if m_nr:
+        rarity = m_nr.group(1).strip().lower()
+        name   = m_nr.group(2).strip() or None
+    else:
+        rarity = None
+        name   = None
+
+    # total damage — first occurrence of "X Damage" outside the passive line.
+    # Strip the passive section (everything after "Passive:") so a stray
+    # "+10 Damage" in passives can't be picked up as the cast damage.
+    cast_text = re.split(r'Passive\s*:', text, maxsplit=1, flags=re.IGNORECASE)[0]
+    m_dmg = _RE_SKILL_DAMAGE.search(cast_text)
+    total_damage = parse_flat(m_dmg.group(1).replace(" ", "")) if m_dmg else 0.0
+
+    m_pd = _RE_SKILL_PASS_DMG.search(text)
+    passive_damage = parse_flat(m_pd.group(1).replace(" ", "")) if m_pd else 0.0
+
+    m_ph = _RE_SKILL_PASS_HP.search(text)
+    passive_hp = parse_flat(m_ph.group(1).replace(" ", "")) if m_ph else 0.0
+
+    return {
+        "name":           name,
+        "rarity":         rarity,
+        "level":          level,
+        "total_damage":   total_damage,
+        "passive_damage": passive_damage,
+        "passive_hp":     passive_hp,
+    }

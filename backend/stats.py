@@ -3,13 +3,46 @@
   FORGE MASTER — Stats math (pure, no I/O)
   Transformations on profile dictionaries: applying
   equipment, companions, finalizing, etc.
+
+  This module does the math; simulation.py does the fight.
 ============================================================
 """
 
 from typing import Dict
 
-from .constants import PERCENT_STATS_KEYS
+from .constants import (
+    ATTACK_INTERVAL,
+    PERCENT_STATS_KEYS,
+    PVP_HP_MULTIPLIER,
+)
 
+
+# ════════════════════════════════════════════════════════════
+#  DERIVED SCALARS
+# ════════════════════════════════════════════════════════════
+
+def speed_mult(attack_speed_pct: float) -> float:
+    """% attack_speed → raw multiplier applied to the swing duration."""
+    return 1.0 + (attack_speed_pct or 0.0) / 100.0
+
+
+def crit_multi(crit_damage_pct: float) -> float:
+    """% crit_damage → damage multiplier applied on a crit roll."""
+    return 1.0 + (crit_damage_pct or 0.0) / 100.0
+
+
+def swing_time(attack_speed_pct: float) -> float:
+    """
+    Time (seconds) for ONE basic-attack swing, reducible by attack_speed.
+    A double-hit swing takes twice this duration (simulation.py handles
+    that by multiplying by 2 on the fly).
+    """
+    return ATTACK_INTERVAL / speed_mult(attack_speed_pct)
+
+
+# ════════════════════════════════════════════════════════════
+#  PROFILE FINALIZATION
+# ════════════════════════════════════════════════════════════
 
 def finalize_bases(profile: Dict) -> Dict:
     """
@@ -30,8 +63,8 @@ def finalize_bases(profile: Dict) -> Dict:
 def combat_stats(profile: Dict) -> Dict:
     """Extract the stats needed to simulate a fight."""
     return {
-        "hp":              profile["hp_total"],
-        "attack":          profile["attack_total"],
+        "hp_total":        profile["hp_total"],
+        "attack_total":    profile["attack_total"],
         "crit_chance":     profile["crit_chance"],
         "crit_damage":     profile["crit_damage"],
         "health_regen":    profile["health_regen"],
@@ -54,6 +87,10 @@ def _recompute_totals(profile: Dict) -> None:
         profile["ranged_pct"] if atk_type == "ranged" else profile["melee_pct"])
     profile["attack_total"] = profile["attack_base"] * (1 + bonus / 100)
 
+
+# ════════════════════════════════════════════════════════════
+#  SWAP HELPERS (equipment / companion / skill)
+# ════════════════════════════════════════════════════════════
 
 def apply_change(profile: Dict, old_eq: Dict, new_eq: Dict) -> Dict:
     """Replace one equipment piece with another. Returns a new dict."""
@@ -88,6 +125,41 @@ def apply_companion(profile: Dict, old: Dict, new_c: Dict) -> Dict:
     return new
 
 
+def apply_skill(profile: Dict, old: Dict, new_s: Dict) -> Dict:
+    """
+    Replace one equipped skill with another. Only the always-on
+    PASSIVE part (passive_damage / passive_hp) feeds into the
+    profile — the active part (damage/hits/cooldown/buff_*) is
+    consumed at simulation time by SkillInstance.
+    """
+    new = dict(profile)
+    new["hp_base"]     = profile["hp_base"]     - float(old.get("passive_hp",     0.0)) + float(new_s.get("passive_hp",     0.0))
+    new["attack_base"] = profile["attack_base"] - float(old.get("passive_damage", 0.0)) + float(new_s.get("passive_damage", 0.0))
+    _recompute_totals(new)
+    return new
+
+
 # Back-compat aliases
 apply_pet   = apply_companion
 apply_mount = apply_companion
+
+
+# ════════════════════════════════════════════════════════════
+#  PvP SCALARS
+# ════════════════════════════════════════════════════════════
+
+def pvp_hp_total(stats: Dict) -> float:
+    """Final HP pool used as the fighter's hp_max: `hp_total × 5`."""
+    return float(stats.get("hp_total", 0.0) or 0.0) * PVP_HP_MULTIPLIER
+
+
+def pvp_regen_per_second(stats: Dict) -> float:
+    """
+    Regen amount per second. Computed on the PRE-PvP HP (hp_total),
+    not on the ×5 pool, so it's weaker in relative terms. Only kicks
+    in while the fighter is below its current hp_max (handled by the
+    simulator).
+    """
+    hp_total  = float(stats.get("hp_total",     0.0) or 0.0)
+    regen_pct = float(stats.get("health_regen", 0.0) or 0.0)
+    return hp_total * regen_pct / 100.0

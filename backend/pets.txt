@@ -5,8 +5,9 @@
 [PET1]
 __name__             = Electry
 __rarity__           = ultimate
-hp_flat              = 3000000.0
-damage_flat          = 1125000.0
+__level__            = 15
+hp_flat              = 3930000.0
+damage_flat          = 1470000.0
 health_pct           = 0.0
 damage_pct           = 0.0
 melee_pct            = 0.0
@@ -24,8 +25,9 @@ block_chance         = 0.0
 [PET2]
 __name__             = Enchanted Elk
 __rarity__           = ultimate
-hp_flat              = 6000000.0
-damage_flat          = 750000.0
+__level__            = 3
+hp_flat              = 6970000.0
+damage_flat          = 872000.0
 health_pct           = 0.0
 damage_pct           = 0.0
 melee_pct            = 0.0
@@ -43,8 +45,9 @@ block_chance         = 0.0
 [PET3]
 __name__             = Treant
 __rarity__           = ultimate
-hp_flat              = 9000000.0
-damage_flat          = 375000.0
+__level__            = 1
+hp_flat              = 10200000.0
+damage_flat          = 427000.0
 health_pct           = 0.0
 damage_pct           = 0.0
 melee_pct            = 0.0

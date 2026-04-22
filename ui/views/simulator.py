@@ -163,6 +163,7 @@ class SimulatorView(ctk.CTkFrame):
 
         grid, _btns = skill_icon_grid(
             scroll, all_skills, self._opp_skill_vars,
+            cols=5, icon_size=38,
             on_toggle=self._toggle_opp_skill,
         )
         grid.pack(padx=12, pady=(0, 4), fill="x")
