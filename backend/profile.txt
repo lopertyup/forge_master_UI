@@ -3,10 +3,10 @@
 # ============================================================
 
 [PLAYER]
-hp_total             = 31399100.0
-attack_total         = 4964229.76
-hp_base              = 31399100.0
-attack_base          = 4082425.7894736845
+hp_total             = 31700000.0
+attack_total         = 5010000.0
+hp_base              = 31700000.0
+attack_base          = 4120065.7894736845
 health_pct           = 0.0
 damage_pct           = 0.0
 melee_pct            = 16.1

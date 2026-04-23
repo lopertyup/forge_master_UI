@@ -303,16 +303,17 @@ class GameController:
     def compare_equipment(
         self, comparison_text: str
     ) -> Optional[Tuple[Dict, Dict, Dict]]:
-        """Parse 'OLD ... NEW! ... NEW' and return (old, new, new_profile)."""
-        if not re.search(r'NEW\s*!', comparison_text, re.IGNORECASE):
+        """Parse two items separated by a '[Rarity] Name' boundary and
+        return (old_eq, new_eq, new_profile)."""
+        result = parse_equipment(comparison_text)
+
+        # parse_equipment returns {"equipped": ..., "candidate": ...} when
+        # two items are detected, or a flat dict for a single item.
+        if "equipped" not in result:
             return None
 
-        parts    = re.split(r'NEW\s*!', comparison_text, flags=re.IGNORECASE)
-        old_text = parts[0]
-        new_text = parts[1] if len(parts) > 1 else ""
-
-        old_eq = parse_equipment(old_text)
-        new_eq = parse_equipment(new_text)
+        old_eq = result["equipped"]
+        new_eq = result["candidate"]
 
         if self._profile is None:
             return None

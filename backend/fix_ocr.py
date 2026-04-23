@@ -1,71 +1,71 @@
 """
 ============================================================
-  FORGE MASTER — OCR text fixer
-  Turn raw OCR output (RapidOCR / PaddleOCR on BlueStacks
-  captures) into text the parser can handle.
+  FORGE MASTER — OCR text fixer (extraction-based)
 
-  Input example (N — from OCR):
-      Equipped
-      [Quantum]HiggsCollar
-      210kDamage
-      LV.92
-      +33.3%AttackSpeed
-      +25.7%DoubleChance
+  Philosophy: DO NOT filter noise — extract signal.
 
-  Output (O — parser-ready):
-      Equipped
-      [Quantum] Higgs Collar
-      210k Damage
-      Lv. 92
-      +33.3% Attack Speed
-      +25.7% Double Chance
+  The input is raw OCR output (RapidOCR / PaddleOCR on
+  BlueStacks captures). We walk the text line by line,
+  recognise ONLY the known tokens (level badges, rarity
+  names, flat stats, substats, keywords), normalise each
+  one, and rebuild the output in the form the parser expects.
+  Everything that matches no pattern is silently dropped.
+
+  Benefits vs the old blacklist approach:
+    - No _DROP_PATTERNS to maintain.
+    - Immune by default to every new OCR artefact.
+    - Double-scan de-duplication comes for free.
+    - Canonical stat ordering comes for free.
 
   Public API:
 
-      fix_ocr(text: str) -> str
+      fix_ocr(text: str, context: Optional[str] = None) -> str
+
+  Context values: "profile", "opponent", "item", "pet",
+  "mount", "skill", or None (generic passthrough).
 ============================================================
 """
 
 from __future__ import annotations
 
 import re
-from typing import List, Optional
+from typing import Dict, List, NamedTuple, Optional
 
-# ── Canonical stat ordering (matches the in-game display) ───
-# Used to reorder the substats in profile/opponent output so
-# the textbox looks like the game's sheet. The parser's regex
-# lookups are order-independent, so reordering is safe.
+
+# ── Known stats (closed list) ────────────────────────────────
+_KNOWN_STATS = (
+    "Critical Chance", "Critical Damage",
+    "Block Chance", "Health Regen",
+    "Lifesteal", "Double Chance",
+    "Melee Damage", "Ranged Damage",
+    "Attack Speed", "Skill Damage", "Skill Cooldown",
+    # 1-word names last (shortest match loses to longer prefix).
+    "Damage", "Health",
+)
+
+# Canonical display order (matches the in-game stat sheet).
 _STAT_ORDER = (
-    "critical chance",
-    "block chance",
-    "health regen",
-    "critical damage",
-    "lifesteal",
-    "double chance",
-    "damage",
-    "melee damage",
-    "ranged damage",
-    "attack speed",
-    "skill damage",
-    "skill cooldown",
-    "health",
+    "Critical Chance",
+    "Critical Damage",
+    "Block Chance",
+    "Health Regen",
+    "Lifesteal",
+    "Double Chance",
+    "Damage",
+    "Melee Damage",
+    "Ranged Damage",
+    "Attack Speed",
+    "Skill Damage",
+    "Skill Cooldown",
+    "Health",
 )
+_STAT_RANK: Dict[str, int] = {name: i for i, name in enumerate(_STAT_ORDER)}
 
-# ── Known stat names (lowercase) ────────────────────────────
-# Used to tell a real "+NN% <stat>" line apart from OCR garbage
-# like "+161% Moloonamano". Matching is lenient: we accept any
-# known stat, optionally followed by extra words we ignore.
-_KNOWN_PCT_STATS = (
-    "critical chance", "critical damage",
-    "attack speed", "double chance", "block chance",
-    "health regen", "lifesteal", "skill damage", "skill cooldown",
-    "melee damage", "ranged damage",
-    "health", "damage",
-)
+# Longest-first so "Health Regen" wins over "Health" on prefix match.
+_KNOWN_STATS_SORTED = tuple(sorted(_KNOWN_STATS, key=lambda s: -len(s)))
 
-# Explicit CamelCase map for stat names. Applied BEFORE generic
-# CamelCase splitting so we never mangle one-word names (e.g.
-# "Lifesteal" must not become "Life steal").
+# CamelCase → spaced canonical. Applied BEFORE the generic
+# "([a-z])([A-Z])" split so 1-word names survive intact.
 _STAT_CAMEL_MAP = {
     "AttackSpeed":    "Attack Speed",
     "DoubleChance":   "Double Chance",
@@ -83,296 +83,437 @@ _STAT_CAMEL_MAP = {
     "TotalHealth":    "Total Health",
 }
 
-# OCR typos that would otherwise survive every normalization step.
+# OCR typos that survive every other normalisation step.
 _OCR_TYPOS = {
-    "LiFesteal": "Lifesteal",
+    "LiFesteal":  "Lifesteal",
     "Lifeste al": "Lifesteal",
-    "LifeSteal": "Lifesteal",
+    "LifeSteal":  "Lifesteal",
 }
 
-# Lines whose lowercased content is EXACTLY one of these are kept
-# verbatim (after trim + canonical casing).
-_KEYWORDS_PASSTHROUGH = {
-    "equipped": "Equipped",
-    "upgrade":  "Upgrade",
-    "remove":   "Remove",
-    "sell":     "Sell",
-    "equip":    "Equip",
-    "new!":     "NEW!",
-    "new !":    "NEW!",
-    "passive:": "Passive:",
-    "passive :": "Passive:",
-}
 
-# Lines matching any of these get dropped (empty strings, single
-# characters, lone digits, OCR artifacts unique to the game UI).
-_DROP_PATTERNS = [
-    re.compile(r"^\s*$"),                                # empty
-    re.compile(r"^\s*[A-Za-z]\s*$"),                     # single letter
-    re.compile(r"^\s*\d{1,6}\s*$"),                      # lone digits: 4, 54, 6607
-    re.compile(r"^\s*\d+\s*:\s*\d+\s*$"),                # timer: 66:07
-    re.compile(r"^\s*[XYxy]\s*[.,]\s*\d"),               # X,227m / Y.227m
-    re.compile(r"^\s*[XY]\d"),                           # X410m
-    re.compile(r"^\s*V\.?\s*[-+]?\s*\d"),                # V.-103, V.4
-    re.compile(r"^\s*[Ll][Vv]\.?\s*[+\-]\s*\d"),         # LV.+7, Lv.-3 (OCR corrupt level)
-    re.compile(r"^\s*\[\s*-.*-\s*\]\s*$"),               # [-FR-]
-    re.compile(r"^\s*\[[A-Z]{3,}\]\s*$"),                # [SHAKS] all-caps tag
-    re.compile(r"^\s*[A-Za-z][A-Za-z]*\s+[a-z]\s*$"),    # "lopertyup y" trailing-letter noise
-    re.compile(r"^\s*(?:[A-Za-z]+\s+){1,3}[a-z]\s*$"),   # "Scg Eric o" — N words + trailing letter
-    re.compile(r"^\s*lopertyup\w*\s*$", re.IGNORECASE),  # "lopertyupoy" player-name blob
-    re.compile(r"^\s*Sc[gq]\s*Eric\s*\w?\s*$", re.IGNORECASE),  # "Scg Eric o" / "Seg Eric"
-]
-
-
-# ── Per-line normalization ──────────────────────────────────
+# ════════════════════════════════════════════════════════════
+#  Step 1 — Low-level normalisation
+# ════════════════════════════════════════════════════════════
 
 def _normalize_line(line: str) -> str:
-    # 1. Typos
+    # Typos
     for wrong, right in _OCR_TYPOS.items():
         line = line.replace(wrong, right)
 
-    # 2. LO / L0 → Lv (OCR confuses lowercase v with capital O or digit 0).
+    # 1. LO / L0 → Lv.
     line = re.sub(r"\b[Ll][O0]\.?\s*(\d)", r"Lv. \1", line)
 
-    # 3. Level prefix: LV.92 / LV92 / lv.92 / LV 92 → "Lv. 92"
-    line = re.sub(r"\b[Ll][Vv]\.?\s*(\d+)", r"Lv. \1", line)
+    # 2. Level prefix variants → "Lv. NN".
+    line = re.sub(r"\b[Ll][Vv][.:\']?\s*(\d+)", r"Lv. \1", line)
 
-    # 4. Rarity bracket casing: [interstellar] → [Interstellar]
+    # 3. Rarity bracket casing: [interstellar] → [Interstellar].
     line = re.sub(
         r"\[([a-z])([A-Za-z]*)\]",
         lambda m: "[" + m.group(1).upper() + m.group(2) + "]",
         line,
     )
 
-    # 5. Space after ']' when glued to a letter: "]Higgs" → "] Higgs"
+    # 4. Space after bracket glued to a word: "]Higgs" → "] Higgs".
     line = re.sub(r"\](\w)", r"] \1", line)
 
-    # 6. Space between digit+unit and next word:
-    #    "210kDamage" → "210k Damage", "1.84mHealth" → "1.84m Health"
+    # 5. Space between digit+unit and following letter:
+    #    "210kDamage" → "210k Damage".
     line = re.sub(r"(\d[kmbKMB])([A-Za-z])", r"\1 \2", line)
 
-    # 7. Space between % and next letter: "+33%AttackSpeed" → "+33% AttackSpeed"
+    # 6. Space after % glued to a letter.
     line = re.sub(r"(%)([A-Za-z])", r"\1 \2", line)
 
-    # 7bis. Space between a number and a following word, EXCEPT when the
-    #       letter is a k/m/b unit (rule 6 already handles those).
-    #       "Lv. 24Forge" → "Lv. 24 Forge"
-    #       "dealing2.45m Damage" → "dealing 2.45m Damage" (lowercase+digit).
-    #       Exclusion class covers every letter EXCEPT k, m, b (any case).
+    # 6bis. Space between digit and following letter (not k/m/b units).
     line = re.sub(r"(\d)([ac-jln-zAC-JLN-Z])", r"\1 \2", line)
+    # And between lowercase letter and following digit.
     line = re.sub(r"([a-z])(\d)", r"\1 \2", line)
 
-    # 7ter. Space after a comma that's glued to the next word:
-    #       "stampede,each" → "stampede, each"
+    # 6ter. Space after comma glued to next word.
     line = re.sub(r",([A-Za-z])", r", \1", line)
 
-    # 8. Whitelist CamelCase → spaced stat names (keeps "Lifesteal" intact).
+    # 7. Space before '(' glued to a word.
+    line = re.sub(r"(\w)\(", r"\1 (", line)
+
+    # 8. CamelCase whitelist (before generic split).
     for joined, spaced in _STAT_CAMEL_MAP.items():
         line = re.sub(r"\b" + joined + r"\b", spaced, line)
 
-    # 9. Space before parenthetical: "Damage(ranged)" → "Damage (ranged)"
-    line = re.sub(r"(\w)\(", r"\1 (", line)
-
-    # 10. Split two passives glued by "+": "Damage+347k" → "Damage +347k"
+    # 9. Split passives glued by "+": "Damage+347k" → "Damage +347k".
     line = re.sub(r"([A-Za-z])\+", r"\1 +", line)
 
-    # 11. Generic CamelCase split for item names ("HiggsCollar" → "Higgs Collar").
-    #     Applied last so stat whitelist wins on contested cases.
+    # 10. Generic CamelCase split for item / skill names.
     line = re.sub(r"([a-z])([A-Z])", r"\1 \2", line)
 
-    # 11bis. Strip trailing punctuation noise on stat lines:
-    #        "+7.58% Skill Damage*" → "+7.58% Skill Damage"
+    # 11. Strip trailing punctuation on stat lines.
     if re.match(r"^\s*[+\-]?\s*[\d.]+\s*%", line):
         line = re.sub(r"[\*\.,;:]+\s*$", "", line)
 
-    # 12. Collapse runs of spaces and strip.
+    # 12. Collapse whitespace and strip.
     line = re.sub(r"[ \t]+", " ", line).strip()
     return line
 
 
-# ── Per-line keep/drop decision ─────────────────────────────
-
-def _is_noise_percent(line: str) -> bool:
-    """True if `line` is a '+NN% <stat>' line with an unknown stat."""
-    m = re.match(r"^[+-]?\s*[\d.]+\s*%\s*(.+)$", line)
-    if not m:
-        return False
-    tail = re.sub(r"\s+", " ", m.group(1)).strip().lower()
-    if not tail:
-        return True
-    # Strip a trailing single punctuation char that OCR sometimes appends
-    # (e.g. "Skill Damage*").
-    tail = tail.rstrip(" .,;:*")
-    for known in _KNOWN_PCT_STATS:
-        if tail == known:
-            return False
-        if tail.startswith(known + " "):
-            return False
-    return True
-
-
-def _should_drop(line: str) -> bool:
+def _split_glued_stats(line: str) -> List[str]:
+    """Split on internal '<space>+<digit>' to separate glued stat pairs
+    like '+43.4k Base Damage +347k Base Health' into two sub-lines."""
     if not line:
-        return True
-    low = line.lower()
-    if low in _KEYWORDS_PASSTHROUGH:
-        return False
-    for pat in _DROP_PATTERNS:
-        if pat.match(line):
-            return True
-    if line.startswith(("+", "-")) or re.match(r"^\s*\d[\d.]*\s*%", line):
-        if _is_noise_percent(line):
-            return True
-    return False
+        return []
+    parts = re.split(r"\s+(?=\+\d)", line)
+    return [p.strip() for p in parts if p.strip()]
 
 
-def _canonicalize_keyword(line: str) -> str:
-    """If the line is a known keyword (case-insensitive), return its canonical form."""
-    return _KEYWORDS_PASSTHROUGH.get(line.lower(), line)
+# ════════════════════════════════════════════════════════════
+#  Step 2 — Pattern extraction
+# ════════════════════════════════════════════════════════════
+
+class Token(NamedTuple):
+    kind: str
+    text: str
+    meta: dict
 
 
-# ── Profile / opponent specific cleanup ─────────────────────
+_RE_LV_FORGE  = re.compile(r"^Lv\.\s*(\d+)\s+Forge\s*$", re.IGNORECASE)
+_RE_LV        = re.compile(r"^Lv\.\s*(\d+)\s*$", re.IGNORECASE)
+_RE_RARITY    = re.compile(r"^\[\s*([A-Z][a-zA-Z]*)\s*\]\s+(.+?)\s*$")
+_RE_TOTAL_DMG = re.compile(r"^([\d.]+)\s*([kmb]?)\s+Total\s+Damage\s*$", re.IGNORECASE)
+_RE_TOTAL_HP  = re.compile(r"^([\d.]+)\s*([kmb]?)\s+Total\s+Health\s*$", re.IGNORECASE)
+_RE_FLAT_DMG  = re.compile(
+    r"^([\d.]+)\s*([kmb]?)\s+Damage(?:\s*\(\s*([A-Za-z]+)\s*\))?\s*(?:\d+\s*)?$",
+    re.IGNORECASE,
+)
+_RE_FLAT_HP   = re.compile(r"^([\d.]+)\s*([kmb]?)\s+Health\s*(?:\d+\s*)?$", re.IGNORECASE)
+_RE_DEALING   = re.compile(r"^dealing\s+([\d.]+)\s*([kmb]?)\s+Damage\s*(?:to\b.*)?$", re.IGNORECASE)
+_RE_BASE_DMG  = re.compile(r"^\+\s*([\d.]+)\s*([kmb]?)\s+Base\s+Damage\s*$", re.IGNORECASE)
+_RE_BASE_HP   = re.compile(r"^\+\s*([\d.]+)\s*([kmb]?)\s+Base\s+Health\s*$", re.IGNORECASE)
+_RE_SLASH     = re.compile(r"^(\d+)\s*/\s*(\d+)\s*$")
+_RE_SUBSTAT   = re.compile(r"^\+\s*([\d.]+)\s*%\s*(.+?)\s*$")
+_RE_PASSIVE   = re.compile(r"^Passive\s*:\s*$", re.IGNORECASE)
+_RE_NEW       = re.compile(r"^NEW\s*!\s*$", re.IGNORECASE)
 
-# Any line that is ONLY "Lv. <num>" (no trailing word like "Forge")
-# is an equipment/skill-level badge rendered between stats on the
-# profile sheet — drop it, it clutters the textbox and the parser
-# doesn't use it anyway.
-_RE_LEVEL_STANDALONE = re.compile(r"^\s*Lv\.?\s*\d+\s*$", re.IGNORECASE)
+# Keywords that are always dropped regardless of context.
+_ALWAYS_DROP = {"equipped", "upgrade", "remove", "sell", "equip"}
 
-# A percent-looking line that's actually corrupted by the OCR:
-#   "+2 i 6% Pannodnamano"  →  digits then SPACE then a non-% char.
-# A well-formed stat is "+N.NN% Stat Name" — no whitespace between
-# the number and the %.
-_RE_CORRUPT_PCT = re.compile(r"^\s*[+\-]\s*[\d.]+\s+[^%\s]")
-
-# Strict percent-stat check: the tail must be one of the known
-# substats from _KNOWN_PCT_STATS. Used in profile/opponent mode
-# to hard-drop anything that wasn't cleanly recognised — the same
-# stat will re-appear on the second capture pass.
-def _is_known_pct_stat(line: str) -> bool:
-    m = re.match(r"^\s*[+\-]\s*[\d.]+\s*%\s*(.+?)\s*$", line)
-    if not m:
-        return False
-    tail = re.sub(r"\s+", " ", m.group(1)).strip().lower().rstrip(" .,;:*")
-    if not tail:
-        return False
-    for known in _KNOWN_PCT_STATS:
-        if tail == known or tail.startswith(known + " "):
-            return True
-    return False
+# Noise patterns that disqualify a line from being kept as skill_text.
+_RE_NOISE_SKILL = (
+    re.compile(r"^\d+$"),
+    re.compile(r"^[A-Za-z]$"),
+    re.compile(r"^\d+\s*:\s*\d+$"),
+)
 
 
-def _is_profile_noise(line: str) -> bool:
-    """Extra drop rules for profile/opponent captures only."""
-    # Standalone "Lv. 103" (equipment level badge) → drop.
-    if _RE_LEVEL_STANDALONE.match(line):
-        return True
-    # Corrupted percent line (e.g. "+2 i 6% Pannodnamano") → drop,
-    # the stat reappears on the next capture pass.
-    if _RE_CORRUPT_PCT.match(line):
-        return True
-    # Any remaining "+NN% <garbage>" is also dropped (stricter than
-    # the default _is_noise_percent which leaves malformed forms in).
-    if line.startswith(("+", "-")) and "%" in line:
-        if not _is_known_pct_stat(line):
-            return True
-    return False
+def _fmt_unit(num: str, unit: str) -> str:
+    return f"{num}{unit.lower()}" if unit else num
 
 
-def _dedupe_preserve_order(lines: List[str]) -> List[str]:
-    """Return `lines` with duplicates removed, keeping first occurrence."""
-    seen: set = set()
-    out: List[str] = []
+def _match_known_stat(tail: str) -> Optional[str]:
+    tail_lower = tail.lower().strip().rstrip(" .,;:*")
+    for stat in _KNOWN_STATS_SORTED:
+        stat_lower = stat.lower()
+        if tail_lower == stat_lower or tail_lower.startswith(stat_lower + " "):
+            return stat
+    return None
+
+
+def _extract_tokens(lines: List[str], context: Optional[str]) -> List[Token]:
+    tokens: List[Token] = []
+    seen_rarity  = False
+    seen_passive = False
+    is_skill     = context == "skill"
+
     for line in lines:
-        key = line.strip()
-        if key in seen:
+        if not line:
             continue
-        seen.add(key)
-        out.append(line)
+
+        low = line.lower().strip()
+
+        # Always-drop keywords (Equipped, Upgrade, Remove, Sell, Equip).
+        if low in _ALWAYS_DROP:
+            continue
+
+        # NEW! — dropped everywhere (second item detected by second rarity).
+        if _RE_NEW.match(line):
+            continue
+
+        # Passive: — skill context only.
+        if _RE_PASSIVE.match(line):
+            if is_skill:
+                tokens.append(Token("passive", "Passive:", {}))
+                seen_passive = True
+            continue
+
+        # Priority 1: "Lv. NN Forge" — dropped everywhere.
+        m = _RE_LV_FORGE.match(line)
+        if m:
+            continue
+
+        # Priority 2: "Lv. NN" — kept only in pet, mount, skill.
+        m = _RE_LV.match(line)
+        if m:
+            if context in ("pet", "mount", "skill"):
+                tokens.append(Token("lv", f"Lv. {m.group(1)}", {"level": int(m.group(1))}))
+            continue
+
+        # Priority 3: "[Rarity] Name".
+        m = _RE_RARITY.match(line)
+        if m:
+            rarity = m.group(1).strip()
+            name   = m.group(2).strip()
+            tokens.append(Token("rarity_name", f"[{rarity}] {name}",
+                                {"rarity": rarity, "name": name}))
+            seen_rarity = True
+            continue
+
+        # Priority 4: "NN.N[kmb] Total Damage".
+        m = _RE_TOTAL_DMG.match(line)
+        if m:
+            tokens.append(Token("total_dmg",
+                                f"{_fmt_unit(m.group(1), m.group(2))} Total Damage", {}))
+            continue
+
+        # Priority 5: "NN.N[kmb] Total Health".
+        m = _RE_TOTAL_HP.match(line)
+        if m:
+            tokens.append(Token("total_hp",
+                                f"{_fmt_unit(m.group(1), m.group(2))} Total Health", {}))
+            continue
+
+        # Priority 11: "dealing NN.N[kmb] Damage" (before flat_dmg to avoid clash).
+        m = _RE_DEALING.match(line)
+        if m:
+            tokens.append(Token("dealing",
+                                f"dealing {_fmt_unit(m.group(1), m.group(2))} Damage", {}))
+            continue
+
+        # Priority 6: "NN.N[kmb] Damage [(ranged)]".
+        m = _RE_FLAT_DMG.match(line)
+        if m:
+            base      = f"{_fmt_unit(m.group(1), m.group(2))} Damage"
+            qualifier = m.group(3) or ""
+            text      = f"{base} ({qualifier.lower()})" if qualifier else base
+            tokens.append(Token("flat_dmg", text,
+                                {"attack_type": qualifier.lower() or None}))
+            continue
+
+        # Priority 7: "NN.N[kmb] Health".
+        m = _RE_FLAT_HP.match(line)
+        if m:
+            tokens.append(Token("flat_hp",
+                                f"{_fmt_unit(m.group(1), m.group(2))} Health", {}))
+            continue
+
+        # Priority 9: "+NN.N[kmb] Base Damage".
+        m = _RE_BASE_DMG.match(line)
+        if m:
+            tokens.append(Token("base_dmg",
+                                f"+{_fmt_unit(m.group(1), m.group(2))} Base Damage", {}))
+            continue
+
+        # Priority 10: "+NN.N[kmb] Base Health".
+        m = _RE_BASE_HP.match(line)
+        if m:
+            tokens.append(Token("base_hp",
+                                f"+{_fmt_unit(m.group(1), m.group(2))} Base Health", {}))
+            continue
+
+        # Priority 12: "NN/NN" — dropped everywhere.
+        m = _RE_SLASH.match(line)
+        if m:
+            continue
+
+        # Priority 8: "+NN.N% <known stat>".
+        m = _RE_SUBSTAT.match(line)
+        if m:
+            stat = _match_known_stat(m.group(2))
+            if stat:
+                tokens.append(Token("substat", f"+{m.group(1)}% {stat}",
+                                    {"stat": stat, "value": m.group(1)}))
+            continue  # unknown stat tail → dropped silently
+
+        # Priority 16: free skill text (skill context, before Passive:).
+        if is_skill and seen_rarity and not seen_passive:
+            if not any(p.match(line) for p in _RE_NOISE_SKILL):
+                tokens.append(Token("skill_text", line, {}))
+
+        # Anything else: silently dropped.
+
+    return tokens
+
+
+# ════════════════════════════════════════════════════════════
+#  Step 3 — Context-specific post-processing
+# ════════════════════════════════════════════════════════════
+
+def _dedupe(tokens: List[Token]) -> List[Token]:
+    seen: set = set()
+    out: List[Token] = []
+    for t in tokens:
+        if t.text in seen:
+            continue
+        seen.add(t.text)
+        out.append(t)
     return out
 
 
-def _stat_rank(line: str) -> int:
-    """Canonical rank for a '+NN% <stat>' line. Non-stats return -1."""
-    m = re.match(r"^\s*[+\-]\s*[\d.]+\s*%\s*(.+?)\s*$", line)
-    if not m:
-        return -1
-    tail = re.sub(r"\s+", " ", m.group(1)).strip().lower().rstrip(" .,;:*")
-    # Match against _STAT_ORDER — longest-prefix wins so "health regen"
-    # doesn't collide with the generic "health".
-    best = -1
-    best_len = -1
-    for idx, name in enumerate(_STAT_ORDER):
-        if tail == name or tail.startswith(name + " "):
-            if len(name) > best_len:
-                best = idx
-                best_len = len(name)
-    return best
+# -- profile / opponent -------------------------------------------------
+
+def _post_profile(tokens: List[Token]) -> List[str]:
+    kept = [t for t in tokens if t.kind in ("total_dmg", "total_hp", "substat")]
+    kept = _dedupe(kept)
+    totals   = [t for t in kept if t.kind in ("total_dmg", "total_hp")]
+    substats = [t for t in kept if t.kind == "substat"]
+    substats.sort(key=lambda t: _STAT_RANK.get(t.meta.get("stat", ""), 99))
+    return [t.text for t in totals + substats]
 
 
-def _reorder_profile_stats(lines: List[str]) -> List[str]:
-    """Reorder recognised stat lines into canonical game order.
+# -- item ---------------------------------------------------------------
 
-    Non-stat lines keep their relative position; the block of stat
-    lines is moved together, placed where the FIRST stat line was,
-    and sorted by _stat_rank.
+def _post_item(tokens: List[Token]) -> List[str]:
+    """item layout (per item):
+        [Rarity] Name
+        flat value(s)
+        +substats
+    No Lv., no Equipped, no Sell, no Equip, no NEW!
+    (all already dropped in _extract_tokens).
     """
-    stat_lines = [(i, l) for i, l in enumerate(lines) if _stat_rank(l) >= 0]
-    if len(stat_lines) < 2:
-        return lines
-    first_stat_idx = stat_lines[0][0]
-    non_stats = [(i, l) for i, l in enumerate(lines) if _stat_rank(l) < 0]
-    sorted_stats = sorted((l for _, l in stat_lines), key=_stat_rank)
     out: List[str] = []
-    inserted = False
-    for i, l in non_stats:
-        if not inserted and i > first_stat_idx:
-            out.extend(sorted_stats)
-            inserted = True
-        out.append(l)
-    if not inserted:
-        out.extend(sorted_stats)
+    for t in tokens:
+        if t.kind in ("rarity_name", "flat_dmg", "flat_hp", "substat"):
+            out.append(t.text)
     return out
 
 
-# ── Public entry point ──────────────────────────────────────
+# -- pet / mount --------------------------------------------------------
+
+def _post_companion(tokens: List[Token], default_lv: int = 1) -> List[str]:
+    """pet/mount: Lv. → [Rarity] Name → flats → substats.
+    Synthesises 'Lv. 1' if OCR missed the level badge."""
+    out: List[str] = []
+    lv     = next((t for t in tokens if t.kind == "lv"), None)
+    rarity = next((t for t in tokens if t.kind == "rarity_name"), None)
+
+    if rarity:
+        out.append(lv.text if lv else f"Lv. {default_lv}")
+        out.append(rarity.text)
+    elif lv:
+        out.append(lv.text)
+
+    for t in tokens:
+        if t.kind in ("flat_dmg", "flat_hp"):
+            out.append(t.text)
+    for t in tokens:
+        if t.kind == "substat":
+            out.append(t.text)
+
+    return out
+
+
+# -- skill --------------------------------------------------------------
+
+def _post_skill(tokens: List[Token]) -> List[str]:
+    """skill layout:
+        Lv. NN
+        [Rarity] Name
+        <free description lines>
+        dealing NN.N[kmb] Damage
+        Passive:
+        +Base Damage +Base Health   (combined on one line)
+    """
+    out: List[str] = []
+
+    lv = next((t for t in tokens if t.kind == "lv"), None)
+    if lv:
+        out.append(lv.text)
+
+    rarity = next((t for t in tokens if t.kind == "rarity_name"), None)
+    if rarity:
+        out.append(rarity.text)
+
+    for t in tokens:
+        if t.kind == "skill_text":
+            out.append(t.text)
+
+    for t in tokens:
+        if t.kind == "dealing":
+            out.append(t.text)
+
+    passive = next((t for t in tokens if t.kind == "passive"), None)
+    if passive:
+        out.append(passive.text)
+
+    base_d = next((t for t in tokens if t.kind == "base_dmg"), None)
+    base_h = next((t for t in tokens if t.kind == "base_hp"),  None)
+    if base_d and base_h:
+        out.append(f"{base_d.text} {base_h.text}")
+    elif base_d:
+        out.append(base_d.text)
+    elif base_h:
+        out.append(base_h.text)
+
+    return out
+
+
+# -- default (no context) -----------------------------------------------
+
+def _post_default(tokens: List[Token]) -> List[str]:
+    """No reordering — emit tokens in original order.
+    Recombines adjacent Base Damage / Base Health onto one line."""
+    out: List[str] = []
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if (t.kind == "base_dmg"
+                and i + 1 < len(tokens)
+                and tokens[i+1].kind == "base_hp"):
+            out.append(f"{t.text} {tokens[i+1].text}")
+            i += 2
+            continue
+        out.append(t.text)
+        i += 1
+    return out
+
+
+# ════════════════════════════════════════════════════════════
+#  Public entry point
+# ════════════════════════════════════════════════════════════
 
 def fix_ocr(text: str, context: Optional[str] = None) -> str:
-    """Clean up raw OCR text so the parser regexes match.
+    """Extract known tokens from raw OCR output, reformat per context.
 
-    Drops obvious noise (player-name artifacts, resource badges,
-    corrupted level readouts, garbage percentage stats) and normalizes
-    every remaining line to the "paste-from-screenshot" format the
-    parser was originally written for.
+    `context` selects the post-processing strategy:
+      - "profile" / "opponent" : keep only Total Damage/Health + known
+        substats, dedupe, reorder substats into canonical in-game order.
+      - "item"                 : [Rarity] Name → flats → substats,
+        repeated for each item. No level, no UI keywords.
+      - "pet" / "mount"        : Lv. → [Rarity] Name → flats → substats.
+        Synthesises "Lv. 1" if OCR missed the level badge.
+      - "skill"                : Lv. → [Rarity] Name → description →
+        dealing → Passive: → +Base Damage +Base Health.
+      - None / other           : generic passthrough (original order).
 
-    `context` (optional) activates zone-specific cleanup:
-      - "profile" / "opponent" : drop standalone "Lv. XX" lines
-        (equipment-level badges in the stat sheet), drop corrupt
-        percent stats (OCR garbage — they re-appear on the next
-        capture anyway), dedupe lines coming from the two
-        stacked captures, then reorder substats into the in-game
-        canonical order (see _STAT_ORDER).
-      - other / None : legacy behaviour, no extra cleanup.
-
-    The transform is idempotent: running `fix_ocr(fix_ocr(x, c), c)`
-    yields the same result as `fix_ocr(x, c)`.
+    The transform is idempotent on well-formed input.
     """
     if not text:
         return ""
 
-    profile_mode = context in ("profile", "opponent")
-
-    out: List[str] = []
+    # Step 1: normalise each raw line, then split glued stat pairs.
+    normalised: List[str] = []
     for raw in text.splitlines():
         line = _normalize_line(raw)
-        if _should_drop(line):
-            continue
-        if profile_mode and _is_profile_noise(line):
-            continue
-        out.append(_canonicalize_keyword(line))
+        normalised.extend(_split_glued_stats(line))
 
-    if profile_mode:
-        out = _dedupe_preserve_order(out)
-        out = _reorder_profile_stats(out)
+    # Step 2: extract typed tokens.
+    tokens = _extract_tokens(normalised, context)
 
-    return "\n".join(out)
+    # Step 3: context-specific post-processing.
+    if context in ("profile", "opponent"):
+        out_lines = _post_profile(tokens)
+    elif context == "item":
+        out_lines = _post_item(tokens)
+    elif context in ("pet", "mount"):
+        out_lines = _post_companion(tokens, default_lv=1)
+    elif context == "skill":
+        out_lines = _post_skill(tokens)
+    else:
+        out_lines = _post_default(tokens)
+
+    return "\n".join(out_lines)

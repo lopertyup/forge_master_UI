@@ -9,6 +9,7 @@
 from typing import Callable, Dict, List, Optional, Tuple
 
 import customtkinter as ctk
+from backend.fix_ocr import fix_ocr
 
 from .theme import (
     C,
@@ -576,7 +577,8 @@ def attach_scan_button(parent_btn_frame: ctk.CTkBaseClass,
             # Final step: assemble full text, fill textbox, trigger auto-run.
             full = (state["buffer"] + "\n\n" + text).strip() \
                 if state["buffer"] else text
-            _fill_textbox(full)
+            fixed = fix_ocr(full, context=scan_key)
+            _fill_textbox(fixed)
             _reset()
             status_lbl.configure(text="✓ OCR complete.", text_color=C["win"])
             if on_scan_ready is not None:

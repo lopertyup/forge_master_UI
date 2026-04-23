@@ -95,44 +95,79 @@ def parse_profile_text(text: str) -> Dict[str, float]:
 # ════════════════════════════════════════════════════════════
 #  EQUIPMENT
 # ════════════════════════════════════════════════════════════
-
-def parse_equipment(text: str) -> Dict[str, Optional[float]]:
-    """Parse an equipment stat block. attack_type optional."""
-    # Cleanup: drop lone digits / single letters (UI artifacts)
-    clean = re.sub(r'(?m)^\s*\d+\s*$',   '', text)
-    clean = re.sub(r'(?m)^\s*[A-Z]\s*$', '', clean)
-    clean = re.sub(r'\n(?![+\-\[\dA-Za-z\[])', ' ', clean)
-
+ 
+# Frontière entre deux items : une ligne "[Rarity] Name".
+_RE_ITEM_BOUNDARY = re.compile(r'(?=^\[)', re.MULTILINE)
+ 
+ 
+def _parse_single_equipment(text: str) -> Dict[str, Optional[float]]:
+    """Parse UN seul bloc équipement (déjà isolé, sans autre item dedans)."""
     eq: Dict[str, Optional[float]] = {k: 0.0 for k in COMPANION_STATS_KEYS}
     eq["attack_type"] = None
-
-    # Flat health: "877k Health" but not "Health Regen" or "Health %"
-    m = re.search(r'([\d.]+[kmb]?)\s*Health(?!\s*Regen)(?!\s*%)', clean, re.IGNORECASE)
+ 
+    # Flat health: "877k Health" mais pas "Health Regen" ni "Health %"
+    m = re.search(r'([\d.]+[kmb]?)\s*Health(?!\s*Regen)(?!\s*%)', text, re.IGNORECASE)
     if m:
         eq["hp_flat"] = parse_flat(m.group(1))
-
-    # Flat damage: "12.3m Damage" optionally followed by (ranged)
-    m = re.search(r'([\d.]+[kmb]?)\s*Damage(\s*\([^)]*\))?(?!\s*%)', clean, re.IGNORECASE)
+ 
+    # Flat damage: "12.3m Damage" optionnellement suivi de (ranged)
+    m = re.search(r'([\d.]+[kmb]?)\s*Damage(\s*\([^)]*\))?(?!\s*%)', text, re.IGNORECASE)
     if m:
         eq["damage_flat"] = parse_flat(m.group(1))
         suffix = m.group(2) or ""
         if re.search(r'ranged', suffix, re.IGNORECASE):
             eq["attack_type"] = "ranged"
-
-    eq["crit_chance"]    = extract(clean, [r'\+([\d. ]+)%\s*Critical\s*Chance'])
-    eq["crit_damage"]    = extract(clean, [r'\+([\d. ]+)%\s*Critical\s*Damage'])
-    eq["health_regen"]   = extract(clean, [r'\+([\d. ]+)%\s*Health\s*Regen'])
-    eq["lifesteal"]      = extract(clean, [r'\+([\d. ]+)%\s*Lifesteal'])
-    eq["double_chance"]  = extract(clean, [r'\+([\d. ]+)%\s*Double\s*Chance'])
-    eq["attack_speed"]   = extract(clean, [r'\+([\d. ]+)%\s*Attack\s*Speed'])
-    eq["skill_damage"]   = extract(clean, [r'\+([\d. ]+)%\s*Skill\s*Damage'])
-    eq["skill_cooldown"] = extract(clean, [r'([+-][\d. ]+)%\s*Skill\s*Cooldown'])
-    eq["block_chance"]   = extract(clean, [r'\+([\d. ]+)%\s*Block\s*Chance'])
-    eq["health_pct"]     = extract(clean, [r'\+([\d. ]+)%\s*Health(?!\s*Regen)'])
-    eq["damage_pct"]     = extract(clean, [r'\+([\d. ]+)%\s*Damage(?!\s*%)'])
-    eq["melee_pct"]      = extract(clean, [r'\+([\d. ]+)%\s*Melee\s*Damage'])
-    eq["ranged_pct"]     = extract(clean, [r'\+([\d. ]+)%\s*Ranged\s*Damage'])
-
+ 
+    eq["crit_chance"]    = extract(text, [r'\+([\d. ]+)%\s*Critical\s*Chance'])
+    eq["crit_damage"]    = extract(text, [r'\+([\d. ]+)%\s*Critical\s*Damage'])
+    eq["health_regen"]   = extract(text, [r'\+([\d. ]+)%\s*Health\s*Regen'])
+    eq["lifesteal"]      = extract(text, [r'\+([\d. ]+)%\s*Lifesteal'])
+    eq["double_chance"]  = extract(text, [r'\+([\d. ]+)%\s*Double\s*Chance'])
+    eq["attack_speed"]   = extract(text, [r'\+([\d. ]+)%\s*Attack\s*Speed'])
+    eq["skill_damage"]   = extract(text, [r'\+([\d. ]+)%\s*Skill\s*Damage'])
+    eq["skill_cooldown"] = extract(text, [r'([+-][\d. ]+)%\s*Skill\s*Cooldown'])
+    eq["block_chance"]   = extract(text, [r'\+([\d. ]+)%\s*Block\s*Chance'])
+    eq["health_pct"]     = extract(text, [r'\+([\d. ]+)%\s*Health(?!\s*Regen)'])
+    eq["damage_pct"]     = extract(text, [r'\+([\d. ]+)%\s*Damage(?!\s*%)'])
+    eq["melee_pct"]      = extract(text, [r'\+([\d. ]+)%\s*Melee\s*Damage'])
+    eq["ranged_pct"]     = extract(text, [r'\+([\d. ]+)%\s*Ranged\s*Damage'])
+ 
+    # Nom et rareté depuis la ligne "[Rarity] Name"
+    m_nr = re.match(r'^\[\s*([A-Za-z]+)\s*\]\s*(.+?)\s*$',
+                    text.strip().splitlines()[0] if text.strip() else "",
+                    re.IGNORECASE)
+    if m_nr:
+        eq["rarity"] = m_nr.group(1).strip().lower()
+        eq["name"]   = m_nr.group(2).strip()
+ 
+    return eq
+ 
+ 
+def parse_equipment(text: str) -> Dict[str, Optional[float]]:
+    """Parse un bloc équipement.
+ 
+    Si le texte contient deux items (séparés par une ligne '[Rarity] Name'),
+    retourne un dict avec les clés 'equipped' et 'candidate' pointant chacun
+    vers un dict de stats.  Si un seul item est présent, retourne directement
+    le dict de stats (comportement rétrocompatible).
+    """
+    # Séparer sur chaque ligne commençant par '[' (frontière d'item).
+    blocks = [b.strip() for b in _RE_ITEM_BOUNDARY.split(text) if b.strip()]
+ 
+    if len(blocks) == 1:
+        # Un seul item — comportement identique à l'ancienne version.
+        return _parse_single_equipment(blocks[0])
+ 
+    if len(blocks) >= 2:
+        # Deux items : premier = équipé, second = candidat.
+        return {
+            "equipped":  _parse_single_equipment(blocks[0]),
+            "candidate": _parse_single_equipment(blocks[1]),
+        }
+ 
+    # Texte vide ou sans rarity bracket.
+    eq: Dict[str, Optional[float]] = {k: 0.0 for k in COMPANION_STATS_KEYS}
+    eq["attack_type"] = None
     return eq
 
 

@@ -2,11 +2,12 @@
 ============================================================
   FORGE MASTER UI — Equipment Comparator
   Layout: text on the left | old/new stacked on the right
-  Auto-simulation (debounce 600 ms) on "NEW!" detection.
+  Auto-simulation (debounce 600 ms) on two-item detection.
 ============================================================
 """
 
 from typing import Dict
+import re
 
 import customtkinter as ctk
 
@@ -45,6 +46,11 @@ _STAT_ROWS = [
     ("skill_cooldown", "Skill Cooldown", False),
     ("health_pct",     "Health %",       False),
 ]
+
+
+def _has_two_items(text: str) -> bool:
+    """True when the text contains at least two '[Rarity] Name' lines."""
+    return len(re.findall(r'^\[', text, re.MULTILINE)) >= 2
 
 
 class EquipmentView(ctk.CTkFrame):
@@ -159,17 +165,17 @@ class EquipmentView(ctk.CTkFrame):
 
     def _on_scan_ready(self) -> None:
         """Called once the OCR finished writing both captures into the
-        textbox. Equipment auto-runs the analyzer when « NEW! » is in
-        the text — check for that and trigger the same pipeline used by
+        textbox. Equipment auto-runs the analyzer when two items are
+        detected — check for that and trigger the same pipeline used by
         the KeyRelease handler."""
         text = self.text_box.get("1.0", "end").strip()
-        if "NEW!" in text.upper():
+        if _has_two_items(text):
             if self._after_id:
                 self.after_cancel(self._after_id)
             self._after_id = self.after(50, self._analyze)
         else:
             self._lbl_status.configure(
-                text="✓ OCR complete. Waiting for « NEW! » marker…",
+                text="✓ OCR complete. Waiting for two items…",
                 text_color=C["muted"])
 
     # ── Auto-analysis (debounce 600 ms) ───────────────────────
@@ -178,11 +184,11 @@ class EquipmentView(ctk.CTkFrame):
         if self._after_id:
             self.after_cancel(self._after_id)
         text = self.text_box.get("1.0", "end").strip()
-        if "NEW!" in text.upper():
+        if _has_two_items(text):
             self._after_id = self.after(600, self._analyze)
         else:
             self._lbl_status.configure(
-                text="Waiting for « NEW! » in the text…")
+                text="Waiting for two items in the text…")
             self._lbl_err.configure(text="")
 
     # ── Analysis + simulation ─────────────────────────────────
@@ -199,7 +205,7 @@ class EquipmentView(ctk.CTkFrame):
         result = self.controller.compare_equipment(text)
         if result is None:
             self._lbl_err.configure(
-                text="⚠ Invalid text: make sure « NEW! » is present.")
+                text="⚠ Invalid text: make sure two items are present.")
             return
 
         self._lbl_err.configure(text="")
