@@ -25,6 +25,9 @@
 ============================================================
 """
 
+import atexit
+import logging
+import os
 import random
 from typing import Dict, List, Optional, Tuple
 
@@ -40,6 +43,8 @@ from .stats import (
     pvp_regen_per_second,
     swing_time,
 )
+
+log = logging.getLogger(__name__)
 
 
 # ════════════════════════════════════════════════════════════
@@ -199,9 +204,14 @@ class Fighter:
         self._regen_snapshot = self.regen_per_sec
 
     def apply_regen(self, dt: float) -> None:
-        if self.hp <= 0 or self.hp >= self.hp_max or self._regen_snapshot <= 0:
+        # Inlined `min()` — saves a builtin call per tick (~2 M calls / 1k sims).
+        hp  = self.hp
+        mhp = self.hp_max
+        rps = self._regen_snapshot
+        if hp <= 0.0 or hp >= mhp or rps <= 0.0:
             return
-        self.hp = min(self.hp_max, self.hp + self._regen_snapshot * dt)
+        new_hp = hp + rps * dt
+        self.hp = mhp if new_hp > mhp else new_hp
 
     # ── attack FSM ──────────────────────────────────────────
 
@@ -215,25 +225,31 @@ class Fighter:
         self.swing_timer += dt
         if self.swing_timer < self.swing_duration:
             return
-        # Release the swing
+        # Release the swing — inlined `target.alive()` check.
         hits = 2 if self.is_double else 1
         for _ in range(hits):
-            if not target.alive():
+            if target.hp <= 0.0:
                 break
             self._perform_attack(target)
         self._start_swing()
 
     def _perform_attack(self, target: "Fighter") -> None:
         # Block cancels the hit entirely.
-        if random.random() < target.block_chance:
+        rand = random.random  # local binding
+        if rand() < target.block_chance:
             return
         dmg = self.attack
-        if random.random() < self.crit_chance:
+        if rand() < self.crit_chance:
             dmg *= self.crit_multi
         target.hp -= dmg
         # Lifesteal — basic attacks only, only when below hp_max.
-        if self.lifesteal > 0 and self.hp < self.hp_max:
-            self.hp = min(self.hp_max, self.hp + dmg * self.lifesteal)
+        ls = self.lifesteal
+        if ls > 0.0:
+            hp  = self.hp
+            mhp = self.hp_max
+            if hp < mhp:
+                new_hp = hp + dmg * ls
+                self.hp = mhp if new_hp > mhp else new_hp
 
 
 # ════════════════════════════════════════════════════════════
@@ -259,51 +275,133 @@ def simulate(
 
     - `sj`, `se`            : player / opponent combat stats.
     - `skills_p`, `skills_o`: equipped skills — [(label, data), ...].
+
+    Hot-loop micro-optimisations (behaviour preserved):
+      * Local binding of `random.random`, TICK, skill lists and bound
+        methods — saves ~2 attribute lookups per call site per tick.
+      * Direct `fighter.hp > 0.0` checks instead of `alive()` calls —
+        saves ~3 M Python method calls per 1 000 fights batch.
+      * Skills list: skip the randomised-interleave branch entirely
+        when both sides have zero skills (common case).
     """
     p = Fighter(sj, skills_p)
     o = Fighter(se, skills_o)
 
-    t = 0.0
-    last_regen_refresh = 0.0
+    # Local bindings — these matter in a 6 000-iteration tight loop.
+    rand          = random.random
+    tick          = TICK
+    p_skills      = p.skills
+    o_skills      = o.skills
+    p_tick_combat = p.tick_combat
+    o_tick_combat = o.tick_combat
+    p_apply_regen = p.apply_regen
+    o_apply_regen = o.apply_regen
+    p_refresh     = p.refresh_regen_snapshot
+    o_refresh     = o.refresh_regen_snapshot
+    has_any_skill = bool(p_skills) or bool(o_skills)
+
+    t                   = 0.0
+    last_regen_refresh  = 0.0
     while t < max_duration:
-        if not p.alive() or not o.alive():
+        # Inlined alive() — saves 2 method calls per tick (~12 M calls / 1k sims).
+        if p.hp <= 0.0 or o.hp <= 0.0:
             break
 
         # Regen snapshot once per second, applied every tick.
         if t - last_regen_refresh >= 1.0:
-            p.refresh_regen_snapshot()
-            o.refresh_regen_snapshot()
+            p_refresh()
+            o_refresh()
             last_regen_refresh = t
-        p.apply_regen(TICK)
-        o.apply_regen(TICK)
+        p_apply_regen(tick)
+        o_apply_regen(tick)
 
-        # Skills (interleaved order randomised per tick).
-        if random.random() < 0.5:
-            for sk in p.skills: sk.tick(TICK, p, o)
-            for sk in o.skills: sk.tick(TICK, o, p)
-        else:
-            for sk in o.skills: sk.tick(TICK, o, p)
-            for sk in p.skills: sk.tick(TICK, p, o)
+        # Skills — skip entirely when neither side has any (common fast case).
+        if has_any_skill:
+            if rand() < 0.5:
+                for sk in p_skills: sk.tick(tick, p, o)
+                for sk in o_skills: sk.tick(tick, o, p)
+            else:
+                for sk in o_skills: sk.tick(tick, o, p)
+                for sk in p_skills: sk.tick(tick, p, o)
 
         # Basic-attack FSM (order randomised per tick).
-        if random.random() < 0.5:
-            p.tick_combat(TICK, o)
-            if o.alive():
-                o.tick_combat(TICK, p)
+        if rand() < 0.5:
+            p_tick_combat(tick, o)
+            if o.hp > 0.0:
+                o_tick_combat(tick, p)
         else:
-            o.tick_combat(TICK, p)
-            if p.alive():
-                p.tick_combat(TICK, o)
+            o_tick_combat(tick, p)
+            if p.hp > 0.0:
+                p_tick_combat(tick, o)
 
-        t += TICK
+        t += tick
 
-    if p.alive() and not o.alive():
+    p_alive = p.hp > 0.0
+    o_alive = o.hp > 0.0
+    if p_alive and not o_alive:
         return "WIN"
-    if o.alive() and not p.alive():
+    if o_alive and not p_alive:
         return "LOSE"
-    if not p.alive() and not o.alive():
+    if not p_alive and not o_alive:
         return "DRAW"
     return _resolve_timeout(p, o)
+
+
+# ════════════════════════════════════════════════════════════
+#  PARALLEL SIMULATION POOL
+# ════════════════════════════════════════════════════════════
+#
+# For large batches (N_SIMULATIONS = 1000), splitting work across
+# CPU cores with a persistent ProcessPoolExecutor gives a ~3-6x
+# speedup on a typical 4-8 core desktop. The pool is created lazily
+# on first use and shut down at interpreter exit. On any failure
+# (spawn disabled, pickling error, etc.) we transparently fall back
+# to the serial path — the public API is unchanged.
+
+_PARALLEL_THRESHOLD = 200   # don't bother spawning workers below this
+_POOL               = None  # type: ignore  # ProcessPoolExecutor | False | None
+_POOL_WORKERS       = max(1, (os.cpu_count() or 2) - 1)
+
+
+def _simulate_chunk(
+    n:            int,
+    sj:           Dict,
+    se:           Dict,
+    skills_p:     Optional[List[Tuple[str, Dict]]],
+    skills_o:     Optional[List[Tuple[str, Dict]]],
+    max_duration: float,
+) -> Tuple[int, int, int]:
+    """Run *n* fights serially. Used by both the serial and parallel paths."""
+    wins = loses = draws = 0
+    for _ in range(n):
+        r = simulate(sj, se, skills_p, skills_o, max_duration=max_duration)
+        if   r == "WIN":  wins  += 1
+        elif r == "LOSE": loses += 1
+        else:             draws += 1
+    return wins, loses, draws
+
+
+def _get_pool():
+    """
+    Lazy-init a persistent ProcessPoolExecutor. Returns the pool, or
+    None if pool creation failed (in which case callers use the
+    serial fallback). The sentinel value `False` is cached so we
+    don't retry on every call once a failure is known.
+    """
+    global _POOL
+    if _POOL is False:
+        return None
+    if _POOL is None:
+        try:
+            from concurrent.futures import ProcessPoolExecutor
+            _POOL = ProcessPoolExecutor(max_workers=_POOL_WORKERS)
+            atexit.register(_POOL.shutdown, wait=False)
+            log.info("simulate_batch: process pool ready (%d workers)", _POOL_WORKERS)
+        except Exception as e:
+            log.warning("simulate_batch: process pool unavailable (%s) — using serial", e)
+            _POOL = False
+            return None
+    return _POOL
 
 
 def simulate_batch(
@@ -314,11 +412,46 @@ def simulate_batch(
     n:            int                              = N_SIMULATIONS,
     max_duration: float                            = DEFAULT_MAX_DURATION,
 ) -> Tuple[int, int, int]:
-    """Run N fights. Returns (wins, loses, draws)."""
-    wins = loses = draws = 0
-    for _ in range(n):
-        r = simulate(sj, se, skills_p, skills_o, max_duration=max_duration)
-        if r == "WIN":    wins  += 1
-        elif r == "LOSE": loses += 1
-        else:             draws += 1
-    return wins, loses, draws
+    """
+    Run N fights. Returns (wins, loses, draws).
+
+    For N >= 200 the work is split across a persistent process pool
+    (one worker per CPU core minus one). For smaller N the serial
+    path is used — process-spawn overhead would outweigh the gain.
+    If the pool can't be created the function transparently falls
+    back to the serial path.
+    """
+    if n < _PARALLEL_THRESHOLD:
+        return _simulate_chunk(n, sj, se, skills_p, skills_o, max_duration)
+
+    pool = _get_pool()
+    if pool is None:
+        return _simulate_chunk(n, sj, se, skills_p, skills_o, max_duration)
+
+    # Split N fights as evenly as possible across workers.
+    nw = _POOL_WORKERS
+    base, rem = divmod(n, nw)
+    chunks = [base + (1 if i < rem else 0) for i in range(nw)]
+
+    try:
+        futures = [
+            pool.submit(_simulate_chunk, cs, sj, se, skills_p, skills_o, max_duration)
+            for cs in chunks if cs > 0
+        ]
+        total_w = total_l = total_d = 0
+        for f in futures:
+            w, l, d = f.result()
+            total_w += w
+            total_l += l
+            total_d += d
+        return total_w, total_l, total_d
+    except Exception as e:
+        # Broken pool / pickling error / worker crash: fall back serial once.
+        log.warning("simulate_batch: parallel dispatch failed (%s) — falling back to serial", e)
+        global _POOL
+        try:
+            pool.shutdown(wait=False)
+        except Exception:
+            pass
+        _POOL = False
+        return _simulate_chunk(n, sj, se, skills_p, skills_o, max_duration)

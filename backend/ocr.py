@@ -168,7 +168,12 @@ def _lines_from_paddleocr(result) -> List[str]:
     return out
 
 
-def ocr_image(img) -> str:
+def ocr_image(
+    img,
+    debug_stamp: Optional[str] = None,
+    debug_zone:  Optional[str] = None,
+    debug_step:  Optional[int] = None,
+) -> str:
     """OCR a PIL image via the selected backend.
 
     The image goes through `fix_ocr.recolour_ui_labels()` first, which
@@ -178,16 +183,38 @@ def ocr_image(img) -> str:
     PaddleOCR reads them at consistent contrast. No-op on captures
     that contain no coloured labels, so it's safe to call always.
 
+    When `debug_stamp` and `debug_zone` are provided, both the raw
+    input image AND the recoloured image are saved under
+    <project_root>/debug_scan/ — see backend.debug_scan for the file
+    naming scheme.
+
     Returns a `\\n`-joined string, one line per detected text box,
     top-to-bottom as returned by the engine. '' on failure.
     """
     if img is None or not _init():
         return ""
     try:
+        # Optional debug dump: the RAW capture, before pre-processing.
+        if debug_stamp is not None and debug_zone is not None:
+            try:
+                from . import debug_scan
+                debug_scan.save_image(img, debug_stamp, debug_zone, debug_step, "1_raw")
+            except Exception:
+                log.debug("debug_scan raw dump skipped", exc_info=True)
+
         # Image-level pre-processing (lives in fix_ocr for logical
         # grouping: every OCR-quality improvement is in that module).
         from .fix_ocr import recolour_ui_labels
         img = recolour_ui_labels(img)
+
+        # Optional debug dump: the PROCESSED image, what the engine sees.
+        if debug_stamp is not None and debug_zone is not None:
+            try:
+                from . import debug_scan
+                debug_scan.save_image(img, debug_stamp, debug_zone, debug_step, "2_processed")
+            except Exception:
+                log.debug("debug_scan processed dump skipped", exc_info=True)
+
         arr = _to_numpy(img)
         if _engine_name == "rapidocr":
             result, _elapsed = _engine(arr)                 # type: ignore[misc]
@@ -203,20 +230,33 @@ def ocr_image(img) -> str:
         return ""
 
 
-def run_ocr(bboxes: Sequence[Bbox]) -> str:
+def run_ocr(
+    bboxes:      Sequence[Bbox],
+    debug_stamp: Optional[str] = None,
+    debug_zone:  Optional[str] = None,
+) -> str:
     """Capture + OCR each bbox, join results with blank lines.
 
     Empty / failed bboxes are silently skipped — the caller can detect
     'totally empty output' by checking the return string itself.
+
+    When `debug_stamp` and `debug_zone` are supplied, each bbox's raw
+    capture and its recoloured variant are written to debug_scan/
+    with step index set to the bbox's position (0, 1, …).
     """
     if not _init():
         return ""
     out: List[str] = []
-    for bbox in bboxes:
+    for step, bbox in enumerate(bboxes):
         img = capture_region(bbox)
         if img is None:
             continue
-        text = ocr_image(img).strip()
+        text = ocr_image(
+            img,
+            debug_stamp=debug_stamp,
+            debug_zone=debug_zone,
+            debug_step=step,
+        ).strip()
         if text:
             out.append(text)
     return "\n\n".join(out)

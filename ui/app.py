@@ -59,6 +59,14 @@ class ForgeMasterApp(ctk.CTk):
         self._active_view_id: str = "dashboard"
         self._view_map = {vid: cls for vid, _, cls in _NAV_ITEMS}
 
+        # View cache: vid -> ctk.CTkFrame. Populated on first visit to each
+        # view; navigating away uses grid_remove() (widget stays alive,
+        # just un-mapped) so coming back is instant. The cache is nuked
+        # wholesale in refresh_current() so stale data never leaks after a
+        # profile/pet/skill/equipment import — rebuild cost is paid at most
+        # once per data-mutation, amortised across every nav click after.
+        self._view_cache: dict = {}
+
         self._build_layout()
         self._build_nav()
         self._build_content_area()
@@ -116,9 +124,17 @@ class ForgeMasterApp(ctk.CTk):
     # ── Navigation ───────────────────────────────────────────
 
     def show_view(self, view_id: str) -> None:
-        """Show the `view_id` view, destroying the previous one."""
-        self._active_view_id = view_id
+        """Show the `view_id` view.
 
+        Uses a cache: each view is built once on first visit, then kept
+        alive and hidden with grid_remove() when another is shown.
+        Switching back is instant — no destroy/rebuild cost, no OCR image
+        re-decoding, no controller calls.
+
+        Data freshness is maintained separately by `refresh_current()`,
+        which nukes the whole cache after a controller.reload().
+        """
+        # Nav-button active styling — always runs, cache-independent.
         for vid, btn in self._nav_buttons.items():
             if vid == view_id:
                 btn.configure(fg_color=C["accent"], text_color=C["text"],
@@ -128,21 +144,47 @@ class ForgeMasterApp(ctk.CTk):
                               text_color=C["muted"],
                               hover_color=C["border"])
 
-        if self._current_view is not None:
-            self._current_view.destroy()
-            self._current_view = None
-
         ViewClass = self._view_map.get(view_id)
         if ViewClass is None:
             log.warning("show_view: unknown view_id %r", view_id)
             return
 
-        self._current_view = ViewClass(self.content_frame, self.controller, self)
-        self._current_view.grid(row=0, column=0, sticky="nsew")
+        # Hide the currently mapped view, if it's not the one we want.
+        if self._current_view is not None and self._active_view_id != view_id:
+            try:
+                self._current_view.grid_remove()
+            except Exception:
+                log.debug("grid_remove on previous view failed", exc_info=True)
+
+        # Serve from cache, or build-then-cache on first visit.
+        view = self._view_cache.get(view_id)
+        if view is None:
+            view = ViewClass(self.content_frame, self.controller, self)
+            self._view_cache[view_id] = view
+
+        view.grid(row=0, column=0, sticky="nsew")
+        self._current_view = view
+        self._active_view_id = view_id
+
+    def _invalidate_view_cache(self) -> None:
+        """Destroy every cached view so the next show_view() rebuilds fresh.
+
+        Called whenever controller data changes — safer than per-view
+        refresh hooks, because we don't have to enumerate every dependency
+        each view has on the controller.
+        """
+        for vid, view in list(self._view_cache.items()):
+            try:
+                view.destroy()
+            except Exception:
+                log.debug("destroy on cached view %r failed", vid, exc_info=True)
+        self._view_cache.clear()
+        self._current_view = None
 
     def refresh_current(self) -> None:
-        """Reload data and rebuild the active view."""
+        """Reload data and rebuild the active view with fresh controller state."""
         self.controller.reload()
+        self._invalidate_view_cache()
         self.show_view(self._active_view_id)
 
 

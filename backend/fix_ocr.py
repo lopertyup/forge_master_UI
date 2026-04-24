@@ -418,9 +418,13 @@ def _normalize_line(line: str) -> str:
     # 10. Generic CamelCase split for item / skill names.
     line = re.sub(r"([a-z])([A-Z])", r"\1 \2", line)
 
-    # 11. Strip trailing punctuation on stat lines.
-    if re.match(r"^\s*[+\-]?\s*[\d.]+\s*%", line):
-        line = re.sub(r"[\*\.,;:]+\s*$", "", line)
+    # 11bis. Strip single parasitic letter glued after a known stat name.
+    # e.g. "1.84m Health A" → "1.84m Health", "247k Damage B" → "247k Damage"
+    line = re.sub(
+        r"(\b(?:Health|Damage))\s+[A-Z]\b(?!\w)",
+        r"\1",
+        line,
+    )
 
     # 12. Collapse whitespace and strip.
     line = re.sub(r"[ \t]+", " ", line).strip()
