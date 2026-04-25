@@ -29,6 +29,7 @@ import atexit
 import logging
 import os
 import random
+import threading
 from typing import Dict, List, Optional, Tuple
 
 from .constants import (
@@ -361,6 +362,10 @@ def simulate(
 _PARALLEL_THRESHOLD = 200   # don't bother spawning workers below this
 _POOL               = None  # type: ignore  # ProcessPoolExecutor | False | None
 _POOL_WORKERS       = max(1, (os.cpu_count() or 2) - 1)
+# Guards the lazy creation of _POOL. Without it, two threads calling
+# simulate_batch on cold start could each spawn a ProcessPoolExecutor
+# and leak the loser.
+_POOL_LOCK: threading.Lock = threading.Lock()
 
 
 def _simulate_chunk(
@@ -387,11 +392,23 @@ def _get_pool():
     None if pool creation failed (in which case callers use the
     serial fallback). The sentinel value `False` is cached so we
     don't retry on every call once a failure is known.
+
+    Thread-safe via `_POOL_LOCK` + double-checked fast path.
     """
     global _POOL
+    # Fast path — every call after the first hits this.
     if _POOL is False:
         return None
-    if _POOL is None:
+    if _POOL is not None:
+        return _POOL
+
+    with _POOL_LOCK:
+        # Re-check inside the lock in case another thread completed
+        # init while we were waiting.
+        if _POOL is False:
+            return None
+        if _POOL is not None:
+            return _POOL
         try:
             from concurrent.futures import ProcessPoolExecutor
             _POOL = ProcessPoolExecutor(max_workers=_POOL_WORKERS)
